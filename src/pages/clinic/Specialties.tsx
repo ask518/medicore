@@ -1,20 +1,24 @@
 // ============================================================================
 // MEDICORE – Interactive Diagnostic Visualization Center
-// Specialty Playground: Orthopedics, Dentistry, Dermatology & Ophthalmology
+// Specialty Playground: Orthopedics (3D Skeleton), Dentistry (3D Arch), Dermatology (3D Body) & Ophthalmology
 // ============================================================================
 
 import React, { useState } from 'react';
 import { useLanguage } from '../../context/LanguageContext';
 import { SkeletonViewer } from '../../components/anatomy/SkeletonViewer';
+import { SkeletonViewer3D } from '../../components/anatomy/SkeletonViewer3D';
 import { OdontogramViewer } from '../../components/anatomy/OdontogramViewer';
+import { OdontogramViewer3D } from '../../components/anatomy/OdontogramViewer3D';
 import { DermatomeMap } from '../../components/anatomy/DermatomeMap';
+import { DermatomeMap3D } from '../../components/anatomy/DermatomeMap3D';
 import { OphthalmologyViewer } from '../../components/anatomy/OphthalmologyViewer';
 import { OrthopedicFinding, ToothRecord, DermaFinding, EyeExaminationData } from '../../types/specialty';
-import { Activity, Smile, Sparkles, Eye, Info } from 'lucide-react';
+import { Activity, Smile, Sparkles, Eye, Box, Sliders } from 'lucide-react';
 
 export const Specialties: React.FC = () => {
   const { locale, t } = useLanguage();
   const [activeTab, setActiveTab] = useState<'orthopedics' | 'dentistry' | 'dermatology' | 'ophthalmology'>('orthopedics');
+  const [engineMode, setEngineMode] = useState<'3d' | '2d'>('3d');
 
   // Interactive finding stores
   const [orthoFindings, setOrthoFindings] = useState<OrthopedicFinding[]>([
@@ -36,6 +40,7 @@ export const Specialties: React.FC = () => {
     16: { toothNumber: 16, condition: 'caries', surfaces: ['O', 'M'], notes: 'تسوس عميق بالعاج', cost: 450, completed: false },
     21: { toothNumber: 21, condition: 'composite_filling', surfaces: ['B'], notes: 'حشو تجميلي ليزر', cost: 600, completed: true },
     46: { toothNumber: 46, condition: 'crown', surfaces: ['O', 'M', 'D', 'B', 'L'], notes: 'طربوش زيركون', cost: 2200, completed: true },
+    36: { toothNumber: 36, condition: 'root_canal', surfaces: ['O'], notes: 'علاج جذور وسحب عصب مكتمل', cost: 1200, completed: true },
   });
 
   const [dermaFindings, setDermaFindings] = useState<DermaFinding[]>([
@@ -61,15 +66,48 @@ export const Specialties: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div>
-        <h1 className="text-xl sm:text-2xl font-black text-slate-900 flex items-center gap-2">
-          <Activity className="w-6 h-6 text-medicore-600" />
-          {locale === 'ar' ? 'المحركات التشخيصية التفاعلية للتخصصات الطبية' : 'Interactive Specialty Diagnostic Engines'}
-        </h1>
-        <p className="text-slate-500 text-xs sm:text-sm mt-0.5">
-          {locale === 'ar' ? 'أدوات توثيق سريري وتفاعلي متخصصة ومستقلة لكل تخصص طبي مع حفظ ومقارنة التحديدات' : 'Dedicated interactive diagnostic maps for orthopedics, dentistry, dermatology & ophthalmology'}
-        </p>
+      {/* Header with 3D/2D Mode Toggle */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-xl sm:text-2xl font-black text-slate-900 flex items-center gap-2">
+            <Activity className="w-6 h-6 text-medicore-600" />
+            {locale === 'ar' ? 'المحركات التشخيصية التفاعلية للتخصصات الطبية' : 'Interactive Specialty Diagnostic Engines'}
+          </h1>
+          <p className="text-slate-500 text-xs sm:text-sm mt-0.5">
+            {locale === 'ar' 
+              ? 'نماذج تشريحية ثلاثية الأبعاد 3D WebGL وتفاعلية بالكامل مع محاكاة الأشعة السينية والخرائط الحرارية' 
+              : 'True 3D WebGL anatomical interactive models with X-Ray simulation & thermal mapping'}
+          </p>
+        </div>
+
+        {/* Engine Switcher (3D WebGL vs 2D Precision Chart) */}
+        <div className="flex items-center gap-1.5 p-1 bg-slate-100 border border-slate-200 rounded-2xl self-start md:self-auto">
+          <button
+            type="button"
+            onClick={() => setEngineMode('3d')}
+            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${
+              engineMode === '3d'
+                ? 'bg-medicore-600 text-white shadow-md'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Box className="w-4 h-4" />
+            <span>{locale === 'ar' ? 'محرك ثلاثي الأبعاد 3D WebGL' : '3D WebGL Engine'}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setEngineMode('2d')}
+            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${
+              engineMode === '2d'
+                ? 'bg-medicore-600 text-white shadow-md'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Sliders className="w-4 h-4" />
+            <span>{locale === 'ar' ? 'مخطط سريري ثنائي الأبعاد 2D' : '2D Clinical Chart'}</span>
+          </button>
+        </div>
       </div>
 
       {/* Specialty Tabs */}
@@ -97,7 +135,7 @@ export const Specialties: React.FC = () => {
           }`}
         >
           <Smile className="w-4 h-4" />
-          <span>{locale === 'ar' ? 'طب الأسنان (FDI Odontogram)' : 'Dental Odontogram'}</span>
+          <span>{locale === 'ar' ? 'طب الأسنان (قوس الفكين FDI)' : 'Dental Odontogram'}</span>
         </button>
 
         <button
@@ -110,7 +148,7 @@ export const Specialties: React.FC = () => {
           }`}
         >
           <Sparkles className="w-4 h-4" />
-          <span>{locale === 'ar' ? 'الجلدية (خريطة الجسم والآفات)' : 'Dermatology Body Map'}</span>
+          <span>{locale === 'ar' ? 'الجلدية (مجسم الجسم 360°)' : 'Dermatology Body Map'}</span>
         </button>
 
         <button
@@ -130,15 +168,27 @@ export const Specialties: React.FC = () => {
       {/* Main Interactive Canvas Active Tab */}
       <div className="animate-fade-in">
         {activeTab === 'orthopedics' && (
-          <SkeletonViewer findings={orthoFindings} onChange={setOrthoFindings} />
+          engineMode === '3d' ? (
+            <SkeletonViewer3D findings={orthoFindings} onChange={setOrthoFindings} />
+          ) : (
+            <SkeletonViewer findings={orthoFindings} onChange={setOrthoFindings} />
+          )
         )}
 
         {activeTab === 'dentistry' && (
-          <OdontogramViewer records={dentalRecords} onChange={setDentalRecords} />
+          engineMode === '3d' ? (
+            <OdontogramViewer3D records={dentalRecords} onChange={setDentalRecords} />
+          ) : (
+            <OdontogramViewer records={dentalRecords} onChange={setDentalRecords} />
+          )
         )}
 
         {activeTab === 'dermatology' && (
-          <DermatomeMap findings={dermaFindings} onChange={setDermaFindings} />
+          engineMode === '3d' ? (
+            <DermatomeMap3D findings={dermaFindings} onChange={setDermaFindings} />
+          ) : (
+            <DermatomeMap findings={dermaFindings} onChange={setDermaFindings} />
+          )
         )}
 
         {activeTab === 'ophthalmology' && (

@@ -9,14 +9,17 @@ import { useLanguage } from '../../context/LanguageContext';
 import { useToast } from '../../context/ToastContext';
 import { dbClient } from '../../lib/dbClient';
 import { SkeletonViewer } from '../../components/anatomy/SkeletonViewer';
+import { SkeletonViewer3D } from '../../components/anatomy/SkeletonViewer3D';
 import { OdontogramViewer } from '../../components/anatomy/OdontogramViewer';
+import { OdontogramViewer3D } from '../../components/anatomy/OdontogramViewer3D';
 import { DermatomeMap } from '../../components/anatomy/DermatomeMap';
+import { DermatomeMap3D } from '../../components/anatomy/DermatomeMap3D';
 import { OphthalmologyViewer } from '../../components/anatomy/OphthalmologyViewer';
 import { OrthopedicFinding, ToothRecord, DermaFinding, EyeExaminationData } from '../../types/specialty';
 import { COMMON_ICD10_DIAGNOSES } from '../../config/appConfig';
 import { 
   Stethoscope, User, Heart, Activity, FileText, CheckCircle2, 
-  AlertTriangle, Plus, Trash2, Lock, ShieldCheck, Sparkles, Send
+  AlertTriangle, Plus, Trash2, Lock, ShieldCheck, Sparkles, Send, Box, Sliders
 } from 'lucide-react';
 
 export const Consultation: React.FC = () => {
@@ -62,6 +65,7 @@ export const Consultation: React.FC = () => {
   const [followUpDate, setFollowUpDate] = useState('');
 
   // Interactive Specialty Findings State
+  const [engineMode, setEngineMode] = useState<'3d' | '2d'>('3d');
   const [orthoFindings, setOrthoFindings] = useState<OrthopedicFinding[]>([]);
   const [dentalRecords, setDentalRecords] = useState<Record<number, ToothRecord>>({});
   const [dermaFindings, setDermaFindings] = useState<DermaFinding[]>([]);
@@ -350,35 +354,76 @@ export const Consultation: React.FC = () => {
 
         {/* 3. Interactive Specialty Module Embedded Directly in Consultation */}
         <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs space-y-4">
-          <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-slate-100 gap-3">
             <div>
               <h3 className="font-bold text-slate-900 text-sm flex items-center gap-2">
                 <Activity className="w-4 h-4 text-medicore-600" />
                 {t.consultation.specialtyExamination}
               </h3>
               <p className="text-xs text-slate-500 mt-0.5">
-                {specialtyCode === 'orthopedics' && (locale === 'ar' ? 'الهيكل العظمي التفاعلي لجراحة العظام' : 'Orthopedic Skeleton')}
-                {specialtyCode === 'dentistry' && (locale === 'ar' ? 'مخطط الأسنان التفاعلي FDI' : 'FDI Dental Odontogram')}
-                {specialtyCode === 'dermatology' && (locale === 'ar' ? 'خريطة الجلد والجسم السريرية' : 'Dermatology Body Map')}
+                {specialtyCode === 'orthopedics' && (locale === 'ar' ? 'الهيكل العظمي التفاعلي لجراحة العظام (3D WebGL / 2D)' : 'Orthopedic Skeleton')}
+                {specialtyCode === 'dentistry' && (locale === 'ar' ? 'مخطط الأسنان التفاعلي FDI (3D WebGL / 2D)' : 'FDI Dental Odontogram')}
+                {specialtyCode === 'dermatology' && (locale === 'ar' ? 'مجسم الجلد والجسم السريري (3D WebGL / 2D)' : 'Dermatology Body Map')}
                 {specialtyCode === 'ophthalmology' && (locale === 'ar' ? 'فحص مقاييس وقاع العين' : 'Ophthalmology Examination')}
               </p>
             </div>
-            <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-medicore-100 text-medicore-800 uppercase">
-              {specialtyCode}
-            </span>
+            
+            <div className="flex items-center gap-2">
+              {/* 3D vs 2D Mode Switcher */}
+              {specialtyCode !== 'ophthalmology' && (
+                <div className="flex items-center gap-1 p-0.5 bg-slate-100 border border-slate-200 rounded-xl text-xs">
+                  <button
+                    type="button"
+                    onClick={() => setEngineMode('3d')}
+                    className={`flex items-center gap-1 px-2.5 py-1 rounded-lg font-bold transition-all ${
+                      engineMode === '3d' ? 'bg-medicore-600 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    <Box className="w-3.5 h-3.5" />
+                    <span>3D</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEngineMode('2d')}
+                    className={`flex items-center gap-1 px-2.5 py-1 rounded-lg font-bold transition-all ${
+                      engineMode === '2d' ? 'bg-medicore-600 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    <Sliders className="w-3.5 h-3.5" />
+                    <span>2D</span>
+                  </button>
+                </div>
+              )}
+
+              <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-medicore-100 text-medicore-800 uppercase">
+                {specialtyCode}
+              </span>
+            </div>
           </div>
 
           {/* Dynamic Interactive Visualizer Component based on doctor specialty */}
           {specialtyCode === 'orthopedics' && (
-            <SkeletonViewer findings={orthoFindings} onChange={setOrthoFindings} readOnly={isSigned} />
+            engineMode === '3d' ? (
+              <SkeletonViewer3D findings={orthoFindings} onChange={setOrthoFindings} readOnly={isSigned} />
+            ) : (
+              <SkeletonViewer findings={orthoFindings} onChange={setOrthoFindings} readOnly={isSigned} />
+            )
           )}
 
           {specialtyCode === 'dentistry' && (
-            <OdontogramViewer records={dentalRecords} onChange={setDentalRecords} readOnly={isSigned} />
+            engineMode === '3d' ? (
+              <OdontogramViewer3D records={dentalRecords} onChange={setDentalRecords} readOnly={isSigned} />
+            ) : (
+              <OdontogramViewer records={dentalRecords} onChange={setDentalRecords} readOnly={isSigned} />
+            )
           )}
 
           {specialtyCode === 'dermatology' && (
-            <DermatomeMap findings={dermaFindings} onChange={setDermaFindings} readOnly={isSigned} />
+            engineMode === '3d' ? (
+              <DermatomeMap3D findings={dermaFindings} onChange={setDermaFindings} readOnly={isSigned} />
+            ) : (
+              <DermatomeMap findings={dermaFindings} onChange={setDermaFindings} readOnly={isSigned} />
+            )
           )}
 
           {specialtyCode === 'ophthalmology' && (
