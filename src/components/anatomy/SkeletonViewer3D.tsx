@@ -1,15 +1,18 @@
 // ============================================================================
-// MEDICORE – High-End 3D Interactive Orthopedic Skeletal Engine (Three.js WebGL)
-// 360° Orbit Rotation, Raycast Hotspot Detection, X-Ray Hologram & Thermal Pain Modes
+// MEDICORE – High-End Medical-Grade 3D Skeletal Diagnostic Engine (Three.js WebGL)
+// Loads Authentic 242-Bone Human Anatomical Model (BodyParts3D GLB Dataset)
+// OrbitControls 360°, X-Ray Hologram, Realistic Ivory Bone, Thermal Pain Heatmap
 // ============================================================================
 
 import React, { useRef, useEffect, useState } from 'react';
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { BoneRegionId, OrthoFindingType, OrthopedicFinding } from '../../types/specialty';
 import { useLanguage } from '../../context/LanguageContext';
 import { 
   Activity, RotateCcw, ZoomIn, ZoomOut, Eye, Layers, 
-  Sparkles, AlertCircle, X, Shield, Sliders
+  Sparkles, AlertCircle, X, Shield, Sliders, Camera, Loader2
 } from 'lucide-react';
 
 interface SkeletonViewer3DProps {
@@ -18,13 +21,15 @@ interface SkeletonViewer3DProps {
   readOnly?: boolean;
 }
 
-type ShaderMode = 'anatomical' | 'xray' | 'thermal';
+type ShaderMode = 'xray' | 'anatomical' | 'thermal';
 
 interface BoneMeshInfo {
   regionId: BoneRegionId;
+  nodeName: string;
   name_ar: string;
   name_en: string;
-  mesh: THREE.Object3D;
+  mesh: THREE.Mesh;
+  originalPosition: THREE.Vector3;
 }
 
 export const SkeletonViewer3D: React.FC<SkeletonViewer3DProps> = ({
@@ -37,8 +42,10 @@ export const SkeletonViewer3D: React.FC<SkeletonViewer3DProps> = ({
 
   // View & Render Controls
   const [shaderMode, setShaderMode] = useState<ShaderMode>('xray');
-  const [hoveredBone, setHoveredBone] = useState<string | null>(null);
-  const [activeModalRegion, setActiveModalRegion] = useState<{ regionId: BoneRegionId; name: string } | null>(null);
+  const [hoveredBone, setHoveredBone] = useState<BoneMeshInfo | null>(null);
+  const [activeModalRegion, setActiveModalRegion] = useState<{ regionId: BoneRegionId; name_ar: string; name_en: string; worldPos: THREE.Vector3 } | null>(null);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [loadProgress, setLoadProgress] = useState<number>(0);
 
   // Finding modal fields
   const [findingType, setFindingType] = useState<OrthoFindingType>('fracture_closed');
@@ -51,32 +58,95 @@ export const SkeletonViewer3D: React.FC<SkeletonViewer3DProps> = ({
   const sceneRef = useRef<THREE.Scene | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
+  const controlsRef = useRef<OrbitControls | null>(null);
   const boneMeshesRef = useRef<BoneMeshInfo[]>([]);
   const markersGroupRef = useRef<THREE.Group | null>(null);
-  const skeletonGroupRef = useRef<THREE.Group | null>(null);
+  const skeletonModelRef = useRef<THREE.Group | null>(null);
 
-  // Mouse interaction state
-  const isDraggingRef = useRef(false);
-  const prevMouseRef = useRef({ x: 0, y: 0 });
-  const rotationTargetRef = useRef({ x: 0, y: 0 });
+  // Map GLB node names to clinical BoneRegionId and translations
+  const mapNodeToRegion = (nodeName: string): { regionId: BoneRegionId; name_ar: string; name_en: string } => {
+    const n = nodeName.toLowerCase();
+
+    // Cranium & Facial Bones
+    if (n.includes('parietal') || n.includes('frontal') || n.includes('occipital') || n.includes('temporal') || n.includes('sphenoid') || n.includes('nasal') || n.includes('zygomatic') || n.includes('maxilla') || n.includes('mandible') || n.includes('vomer') || n.includes('ethmoid')) {
+      return { regionId: 'skull', name_ar: 'الجمجمة والوجه (Cranium & Face)', name_en: 'Cranium & Facial Bones' };
+    }
+
+    // Spine
+    if (n.includes('atlas') || n.includes('axis') || n.includes('cervical') || n.includes('c1') || n.includes('c2') || n.includes('c3') || n.includes('c4') || n.includes('c5') || n.includes('c6') || n.includes('c7')) {
+      return { regionId: 'cervical_spine', name_ar: 'الفقرات العنقية (Cervical C1-C7)', name_en: 'Cervical Spine (C1-C7)' };
+    }
+    if (n.includes('thoracic-vertebra') || n.includes('t1') || n.includes('t2') || n.includes('t3') || n.includes('t4') || n.includes('t5') || n.includes('t6') || n.includes('t7') || n.includes('t8') || n.includes('t9') || n.includes('t10') || n.includes('t11') || n.includes('t12')) {
+      return { regionId: 'thoracic_spine', name_ar: 'الفقرات الصدرية (Thoracic T1-T12)', name_en: 'Thoracic Spine (T1-T12)' };
+    }
+    if (n.includes('lumbar-vertebra') || n.includes('l1') || n.includes('l2') || n.includes('l3') || n.includes('l4') || n.includes('l5')) {
+      return { regionId: 'lumbar_spine', name_ar: 'الفقرات القطنية (Lumbar L1-L5)', name_en: 'Lumbar Spine (L1-L5)' };
+    }
+    if (n.includes('sacrum') || n.includes('coccyx')) {
+      return { regionId: 'sacrum_pelvis', name_ar: 'العجز والعصعص (Sacrum & Coccyx)', name_en: 'Sacrum & Coccyx' };
+    }
+
+    // Ribs & Sternum
+    if (n.includes('rib') || n.includes('costal') || n.includes('sternum') || n.includes('manubrium') || n.includes('xiphoid')) {
+      return { regionId: 'thoracic_spine', name_ar: 'القفص الصدري والقص (Ribcage & Sternum)', name_en: 'Ribcage & Sternum' };
+    }
+
+    // Upper Limbs Right
+    if (n.includes('right-clavicle')) return { regionId: 'clavicle_r', name_ar: 'الترقوة اليمنى (Right Clavicle)', name_en: 'Right Clavicle' };
+    if (n.includes('right-scapula')) return { regionId: 'scapula_r', name_ar: 'لوح الكتف الأيمن (Right Scapula)', name_en: 'Right Scapula' };
+    if (n.includes('right-humerus')) return { regionId: 'humerus_r', name_ar: 'عضد الذراع الأيمن (Right Humerus)', name_en: 'Right Humerus' };
+    if (n.includes('right-radius') || n.includes('right-ulna')) return { regionId: 'radius_ulna_r', name_ar: 'الساعد الأيمن (Right Radius/Ulna)', name_en: 'Right Forearm' };
+    if (n.includes('right-scaphoid') || n.includes('right-lunate') || n.includes('right-triquetral') || n.includes('right-metacarpal') || n.includes('right-thumb') || n.includes('right-index-finger') || n.includes('right-middle-finger') || n.includes('right-ring-finger') || n.includes('right-little-finger')) {
+      return { regionId: 'wrist_hand_r', name_ar: 'الرسغ واليد اليمنى (Right Wrist/Hand)', name_en: 'Right Wrist & Hand' };
+    }
+
+    // Upper Limbs Left
+    if (n.includes('left-clavicle')) return { regionId: 'clavicle_l', name_ar: 'الترقوة اليسرى (Left Clavicle)', name_en: 'Left Clavicle' };
+    if (n.includes('left-scapula')) return { regionId: 'scapula_l', name_ar: 'لوح الكتف الأيسر (Left Scapula)', name_en: 'Left Scapula' };
+    if (n.includes('left-humerus')) return { regionId: 'humerus_l', name_ar: 'عضد الذراع الأيسر (Left Humerus)', name_en: 'Left Humerus' };
+    if (n.includes('left-radius') || n.includes('left-ulna')) return { regionId: 'radius_ulna_l', name_ar: 'الساعد الأيسر (Left Radius/Ulna)', name_en: 'Left Forearm' };
+    if (n.includes('left-scaphoid') || n.includes('left-lunate') || n.includes('left-triquetral') || n.includes('left-metacarpal') || n.includes('left-thumb') || n.includes('left-index-finger') || n.includes('left-middle-finger') || n.includes('left-ring-finger') || n.includes('left-little-finger')) {
+      return { regionId: 'wrist_hand_l', name_ar: 'الرسغ واليد اليسرى (Left Wrist/Hand)', name_en: 'Left Wrist & Hand' };
+    }
+
+    // Pelvis / Hip
+    if (n.includes('right-hip-bone')) return { regionId: 'sacrum_pelvis', name_ar: 'الحوض الأيمن (Right Hemipelvis)', name_en: 'Right Hip Bone' };
+    if (n.includes('left-hip-bone')) return { regionId: 'sacrum_pelvis', name_ar: 'الحوض الأيسر (Left Hemipelvis)', name_en: 'Left Hip Bone' };
+
+    // Lower Limbs Right
+    if (n.includes('right-femur')) return { regionId: 'femur_r', name_ar: 'عظمة الفخذ اليمنى (Right Femur)', name_en: 'Right Femur' };
+    if (n.includes('right-patella')) return { regionId: 'knee_r', name_ar: 'الركبة والرضفة اليمنى (Right Patella/Knee)', name_en: 'Right Knee & Patella' };
+    if (n.includes('right-tibia') || n.includes('right-fibula')) return { regionId: 'tibia_fibula_r', name_ar: 'الساق والقصبة اليمنى (Right Tibia/Fibula)', name_en: 'Right Tibia & Fibula' };
+    if (n.includes('right-talus') || n.includes('right-calcaneus') || n.includes('right-navicular') || n.includes('right-metatarsal') || n.includes('right-big-toe') || n.includes('right-toe')) {
+      return { regionId: 'ankle_foot_r', name_ar: 'الكاحل والقدم اليمنى (Right Ankle/Foot)', name_en: 'Right Ankle & Foot' };
+    }
+
+    // Lower Limbs Left
+    if (n.includes('left-femur')) return { regionId: 'femur_l', name_ar: 'عظمة الفخذ اليسرى (Left Femur)', name_en: 'Left Femur' };
+    if (n.includes('left-patella')) return { regionId: 'knee_l', name_ar: 'الركبة والرضفة اليسرى (Left Patella/Knee)', name_en: 'Left Knee & Patella' };
+    if (n.includes('left-tibia') || n.includes('left-fibula')) return { regionId: 'tibia_fibula_l', name_ar: 'الساق والقصبة اليسرى (Left Tibia/Fibula)', name_en: 'Left Tibia & Fibula' };
+    if (n.includes('left-talus') || n.includes('left-calcaneus') || n.includes('left-navicular') || n.includes('left-metatarsal') || n.includes('left-big-toe') || n.includes('left-toe')) {
+      return { regionId: 'ankle_foot_l', name_ar: 'الكاحل والقدم اليسرى (Left Ankle/Foot)', name_en: 'Left Ankle & Foot' };
+    }
+
+    return { regionId: 'thoracic_spine', name_ar: nodeName.replace(/-/g, ' '), name_en: nodeName.replace(/-/g, ' ') };
+  };
 
   useEffect(() => {
     const container = mountRef.current;
     if (!container) return;
 
-    const width = container.clientWidth || 600;
-    const height = 540;
+    const width = container.clientWidth || 700;
+    const height = 560;
 
     // 1. Scene
     const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x060913); // Deep radiographic dark space
     sceneRef.current = scene;
 
-    // Background gradient effect
-    scene.background = new THREE.Color(shaderMode === 'xray' ? 0x07111e : 0x0b1329);
-
     // 2. Camera
-    const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
-    camera.position.set(0, 0, 32);
+    const camera = new THREE.PerspectiveCamera(38, width / height, 0.1, 100);
+    camera.position.set(0, 0, 5.8);
     cameraRef.current = camera;
 
     // 3. Renderer
@@ -84,373 +154,175 @@ export const SkeletonViewer3D: React.FC<SkeletonViewer3DProps> = ({
     renderer.setSize(width, height);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    rendererRef.current = renderer;
     container.innerHTML = '';
     container.appendChild(renderer.domElement);
-    rendererRef.current = renderer;
 
-    // 4. Lighting setup (Medical Studio Lighting)
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+    // 4. OrbitControls
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.06;
+    controls.minDistance = 1.5;
+    controls.maxDistance = 10;
+    controls.target.set(0, 0, 0);
+    controlsRef.current = controls;
+
+    // 5. Lighting
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.9);
     scene.add(ambientLight);
 
-    const dirLight1 = new THREE.DirectionalLight(0x0c87eb, 1.8);
-    dirLight1.position.set(10, 20, 15);
-    scene.add(dirLight1);
+    const keyLight = new THREE.DirectionalLight(0xffffff, 1.4);
+    keyLight.position.set(5, 8, 7);
+    scene.add(keyLight);
 
-    const dirLight2 = new THREE.DirectionalLight(0x14b8a6, 1.2);
-    dirLight2.position.set(-15, -10, -10);
-    scene.add(dirLight2);
+    const rimCyan = new THREE.DirectionalLight(0x38BDF8, 0.8);
+    rimCyan.position.set(-6, 2, -5);
+    scene.add(rimCyan);
 
-    const rimLight = new THREE.DirectionalLight(0x38bdf8, 1.5);
-    rimLight.position.set(0, 15, -20);
-    scene.add(rimLight);
+    const backIndigo = new THREE.DirectionalLight(0x818CF8, 0.6);
+    backIndigo.position.set(0, -6, 5);
+    scene.add(backIndigo);
 
-    // 5. Build Articulated 3D Anatomical Skeleton
-    const skeletonGroup = new THREE.Group();
-    skeletonGroupRef.current = skeletonGroup;
-    scene.add(skeletonGroup);
-
-    const boneList: BoneMeshInfo[] = [];
-
-    // Helper material generator
-    const getBoneMaterial = (color = 0xe2e8f0, roughness = 0.35) => {
-      if (shaderMode === 'xray') {
-        return new THREE.MeshPhysicalMaterial({
-          color: 0x38bdf8,
-          emissive: 0x0369a1,
-          emissiveIntensity: 0.3,
-          roughness: 0.1,
-          metalness: 0.1,
-          transparent: true,
-          opacity: 0.88,
-          wireframe: false,
-        });
-      } else if (shaderMode === 'thermal') {
-        return new THREE.MeshStandardMaterial({
-          color: 0x10b981,
-          roughness: 0.4,
-          metalness: 0.1,
-        });
-      }
-      return new THREE.MeshStandardMaterial({
-        color,
-        roughness,
-        metalness: 0.05,
-      });
-    };
-
-    // A. Skull & Cranium
-    const skullGroup = new THREE.Group();
-    const craniumGeom = new THREE.SphereGeometry(1.4, 32, 24);
-    craniumGeom.scale(1, 1.15, 1.1);
-    const craniumMesh = new THREE.Mesh(craniumGeom, getBoneMaterial(0xf8fafc));
-    craniumMesh.position.y = 8.5;
-    skullGroup.add(craniumMesh);
-
-    // Facial skeleton & Mandible
-    const jawGeom = new THREE.CylinderGeometry(0.7, 0.5, 0.9, 16);
-    jawGeom.scale(1, 1, 0.7);
-    const jawMesh = new THREE.Mesh(jawGeom, getBoneMaterial(0xf1f5f9));
-    jawMesh.position.set(0, 7.3, 0.3);
-    skullGroup.add(jawMesh);
-    skeletonGroup.add(skullGroup);
-    boneList.push({ regionId: 'skull', name_ar: 'الجمجمة والفك (Cranium & Mandible)', name_en: 'Skull & Mandible', mesh: skullGroup });
-
-    // B. Cervical Spine (C1-C7)
-    const cervicalGroup = new THREE.Group();
-    for (let i = 0; i < 7; i++) {
-      const vertGeom = new THREE.CylinderGeometry(0.5, 0.55, 0.2, 16);
-      const vert = new THREE.Mesh(vertGeom, getBoneMaterial(0xe2e8f0));
-      vert.position.set(0, 6.7 - i * 0.28, -0.05);
-      cervicalGroup.add(vert);
-    }
-    skeletonGroup.add(cervicalGroup);
-    boneList.push({ regionId: 'cervical_spine', name_ar: 'الفقرات العنقية (Cervical Spine C1-C7)', name_en: 'Cervical Spine', mesh: cervicalGroup });
-
-    // C. Thoracic Spine & Ribcage
-    const thoracicGroup = new THREE.Group();
-    for (let i = 0; i < 12; i++) {
-      const vert = new THREE.Mesh(new THREE.CylinderGeometry(0.65, 0.7, 0.28, 16), getBoneMaterial(0xe2e8f0));
-      vert.position.set(0, 4.6 - i * 0.32, -0.1);
-      thoracicGroup.add(vert);
-
-      // Rib pairs
-      const ribRadius = 2.2 - Math.abs(i - 5) * 0.12;
-      const ribGeom = new THREE.TorusGeometry(ribRadius, 0.1, 10, 24, Math.PI * 1.5);
-      const ribMesh = new THREE.Mesh(ribGeom, getBoneMaterial(0xdbeafe));
-      ribMesh.rotation.x = Math.PI / 2 + 0.15;
-      ribMesh.rotation.z = Math.PI * 0.75;
-      ribMesh.position.set(0, 4.6 - i * 0.32, 0.2);
-      thoracicGroup.add(ribMesh);
-    }
-    // Sternum
-    const sternumMesh = new THREE.Mesh(new THREE.BoxGeometry(0.6, 3.2, 0.2), getBoneMaterial(0xf1f5f9));
-    sternumMesh.position.set(0, 3.2, 2.1);
-    thoracicGroup.add(sternumMesh);
-    skeletonGroup.add(thoracicGroup);
-    boneList.push({ regionId: 'thoracic_spine', name_ar: 'الفقرات الصدرية والقفص الصدري (Thorax & Ribs)', name_en: 'Thoracic Spine & Ribcage', mesh: thoracicGroup });
-
-    // D. Lumbar Spine (L1-L5)
-    const lumbarGroup = new THREE.Group();
-    for (let i = 0; i < 5; i++) {
-      const vert = new THREE.Mesh(new THREE.CylinderGeometry(0.85, 0.9, 0.38, 18), getBoneMaterial(0xe2e8f0));
-      vert.position.set(0, 0.5 - i * 0.44, -0.05);
-      lumbarGroup.add(vert);
-    }
-    skeletonGroup.add(lumbarGroup);
-    boneList.push({ regionId: 'lumbar_spine', name_ar: 'الفقرات القطنية (Lumbar Spine L1-L5)', name_en: 'Lumbar Spine', mesh: lumbarGroup });
-
-    // E. Pelvis & Sacrum
-    const pelvisGroup = new THREE.Group();
-    // Sacrum
-    const sacrumMesh = new THREE.Mesh(new THREE.ConeGeometry(1.1, 1.8, 16), getBoneMaterial(0xe2e8f0));
-    sacrumMesh.position.set(0, -2.1, -0.2);
-    sacrumMesh.rotation.x = Math.PI;
-    pelvisGroup.add(sacrumMesh);
-
-    // Iliac Wings (Right & Left)
-    const iliumR = new THREE.Mesh(new THREE.TorusGeometry(1.6, 0.35, 12, 24, Math.PI), getBoneMaterial(0xf1f5f9));
-    iliumR.position.set(-1.4, -1.8, 0.2);
-    iliumR.rotation.z = -Math.PI * 0.25;
-    pelvisGroup.add(iliumR);
-
-    const iliumL = new THREE.Mesh(new THREE.TorusGeometry(1.6, 0.35, 12, 24, Math.PI), getBoneMaterial(0xf1f5f9));
-    iliumL.position.set(1.4, -1.8, 0.2);
-    iliumL.rotation.z = Math.PI * 1.25;
-    pelvisGroup.add(iliumL);
-    skeletonGroup.add(pelvisGroup);
-    boneList.push({ regionId: 'sacrum_pelvis', name_ar: 'الحوض والعجز (Pelvis & Sacrum)', name_en: 'Pelvic Girdle & Sacrum', mesh: pelvisGroup });
-
-    // F. Upper Limbs (Clavicle, Shoulder, Humerus, Forearm, Hand)
-    // Right Shoulder & Humerus
-    const shoulderR = new THREE.Mesh(new THREE.SphereGeometry(0.5, 16, 16), getBoneMaterial(0x93c5fd));
-    shoulderR.position.set(-3.1, 4.4, 0);
-    skeletonGroup.add(shoulderR);
-    boneList.push({ regionId: 'shoulder_r', name_ar: 'مفصل الكتف الأيمن (Right Shoulder)', name_en: 'Right Shoulder', mesh: shoulderR });
-
-    const humerusR = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.38, 4.2, 16), getBoneMaterial(0xf8fafc));
-    humerusR.position.set(-3.4, 2.2, 0);
-    skeletonGroup.add(humerusR);
-    boneList.push({ regionId: 'humerus_r', name_ar: 'عضد اليد اليمنى (Right Humerus)', name_en: 'Right Humerus', mesh: humerusR });
-
-    const elbowR = new THREE.Mesh(new THREE.SphereGeometry(0.42, 16, 16), getBoneMaterial(0x93c5fd));
-    elbowR.position.set(-3.5, 0.0, 0);
-    skeletonGroup.add(elbowR);
-    boneList.push({ regionId: 'elbow_r', name_ar: 'مفصل الكوع الأيمن (Right Elbow)', name_en: 'Right Elbow', mesh: elbowR });
-
-    const forearmR = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.34, 4.0, 16), getBoneMaterial(0xf1f5f9));
-    forearmR.position.set(-3.6, -2.1, 0);
-    skeletonGroup.add(forearmR);
-    boneList.push({ regionId: 'radius_ulna_r', name_ar: 'ساعد اليد اليمنى (Right Radius & Ulna)', name_en: 'Right Radius & Ulna', mesh: forearmR });
-
-    const handR = new THREE.Mesh(new THREE.BoxGeometry(0.6, 1.2, 0.3), getBoneMaterial(0xe2e8f0));
-    handR.position.set(-3.7, -4.6, 0);
-    skeletonGroup.add(handR);
-    boneList.push({ regionId: 'wrist_hand_r', name_ar: 'رسغ ومشط اليد اليمنى (Right Hand)', name_en: 'Right Wrist & Hand', mesh: handR });
-
-    // Left Shoulder & Humerus
-    const shoulderL = new THREE.Mesh(new THREE.SphereGeometry(0.5, 16, 16), getBoneMaterial(0x93c5fd));
-    shoulderL.position.set(3.1, 4.4, 0);
-    skeletonGroup.add(shoulderL);
-    boneList.push({ regionId: 'shoulder_l', name_ar: 'مفصل الكتف الأيسر (Left Shoulder)', name_en: 'Left Shoulder', mesh: shoulderL });
-
-    const humerusL = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.38, 4.2, 16), getBoneMaterial(0xf8fafc));
-    humerusL.position.set(3.4, 2.2, 0);
-    skeletonGroup.add(humerusL);
-    boneList.push({ regionId: 'humerus_l', name_ar: 'عضد اليد اليسرى (Left Humerus)', name_en: 'Left Humerus', mesh: humerusL });
-
-    const elbowL = new THREE.Mesh(new THREE.SphereGeometry(0.42, 16, 16), getBoneMaterial(0x93c5fd));
-    elbowL.position.set(3.5, 0.0, 0);
-    skeletonGroup.add(elbowL);
-    boneList.push({ regionId: 'elbow_l', name_ar: 'مفصل الكوع الأيسر (Left Elbow)', name_en: 'Left Elbow', mesh: elbowL });
-
-    const forearmL = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.34, 4.0, 16), getBoneMaterial(0xf1f5f9));
-    forearmL.position.set(3.6, -2.1, 0);
-    skeletonGroup.add(forearmL);
-    boneList.push({ regionId: 'radius_ulna_l', name_ar: 'ساعد اليد اليسرى (Left Radius & Ulna)', name_en: 'Left Radius & Ulna', mesh: forearmL });
-
-    const handL = new THREE.Mesh(new THREE.BoxGeometry(0.6, 1.2, 0.3), getBoneMaterial(0xe2e8f0));
-    handL.position.set(3.7, -4.6, 0);
-    skeletonGroup.add(handL);
-    boneList.push({ regionId: 'wrist_hand_l', name_ar: 'رسغ ومشط اليد اليسرى (Left Hand)', name_en: 'Left Wrist & Hand', mesh: handL });
-
-    // G. Lower Limbs (Hips, Femur, Patella/Knee, Tibia, Foot)
-    // Right Lower Limb
-    const hipR = new THREE.Mesh(new THREE.SphereGeometry(0.55, 16, 16), getBoneMaterial(0x60a5fa));
-    hipR.position.set(-1.8, -3.1, 0.2);
-    skeletonGroup.add(hipR);
-    boneList.push({ regionId: 'hip_joint_r', name_ar: 'مفصل الفخذ الأيمن (Right Hip)', name_en: 'Right Hip Joint', mesh: hipR });
-
-    const femurR = new THREE.Mesh(new THREE.CylinderGeometry(0.48, 0.52, 5.8, 18), getBoneMaterial(0xf8fafc));
-    femurR.position.set(-2.0, -6.1, 0.2);
-    skeletonGroup.add(femurR);
-    boneList.push({ regionId: 'femur_r', name_ar: 'عظمة الفخذ اليمنى (Right Femur)', name_en: 'Right Femur', mesh: femurR });
-
-    const kneeR = new THREE.Mesh(new THREE.SphereGeometry(0.55, 16, 16), getBoneMaterial(0x60a5fa));
-    kneeR.position.set(-2.0, -9.2, 0.3);
-    skeletonGroup.add(kneeR);
-    boneList.push({ regionId: 'knee_r', name_ar: 'مفصل الركبة اليمنى (Right Knee)', name_en: 'Right Knee Joint', mesh: kneeR });
-
-    const tibiaR = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.46, 5.6, 18), getBoneMaterial(0xf1f5f9));
-    tibiaR.position.set(-2.0, -12.2, 0.2);
-    skeletonGroup.add(tibiaR);
-    boneList.push({ regionId: 'tibia_fibula_r', name_ar: 'ساق وقصبة الرجل اليمنى (Right Tibia & Fibula)', name_en: 'Right Tibia & Fibula', mesh: tibiaR });
-
-    const footR = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.5, 2.0), getBoneMaterial(0xe2e8f0));
-    footR.position.set(-2.0, -15.2, 0.8);
-    skeletonGroup.add(footR);
-    boneList.push({ regionId: 'ankle_foot_r', name_ar: 'كاحل وقدم الرجل اليمنى (Right Ankle & Foot)', name_en: 'Right Ankle & Foot', mesh: footR });
-
-    // Left Lower Limb
-    const hipL = new THREE.Mesh(new THREE.SphereGeometry(0.55, 16, 16), getBoneMaterial(0x60a5fa));
-    hipL.position.set(1.8, -3.1, 0.2);
-    skeletonGroup.add(hipL);
-    boneList.push({ regionId: 'hip_joint_l', name_ar: 'مفصل الفخذ الأيسر (Left Hip)', name_en: 'Left Hip Joint', mesh: hipL });
-
-    const femurL = new THREE.Mesh(new THREE.CylinderGeometry(0.48, 0.52, 5.8, 18), getBoneMaterial(0xf8fafc));
-    femurL.position.set(2.0, -6.1, 0.2);
-    skeletonGroup.add(femurL);
-    boneList.push({ regionId: 'femur_l', name_ar: 'عظمة الفخذ اليسرى (Left Femur)', name_en: 'Left Femur', mesh: femurL });
-
-    const kneeL = new THREE.Mesh(new THREE.SphereGeometry(0.55, 16, 16), getBoneMaterial(0x60a5fa));
-    kneeL.position.set(2.0, -9.2, 0.3);
-    skeletonGroup.add(kneeL);
-    boneList.push({ regionId: 'knee_l', name_ar: 'مفصل الركبة اليسرى (Left Knee)', name_en: 'Left Knee Joint', mesh: kneeL });
-
-    const tibiaL = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.46, 5.6, 18), getBoneMaterial(0xf1f5f9));
-    tibiaL.position.set(2.0, -12.2, 0.2);
-    skeletonGroup.add(tibiaL);
-    boneList.push({ regionId: 'tibia_fibula_l', name_ar: 'ساق وقصبة الرجل اليسرى (Left Tibia & Fibula)', name_en: 'Left Tibia & Fibula', mesh: tibiaL });
-
-    const footL = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.5, 2.0), getBoneMaterial(0xe2e8f0));
-    footL.position.set(2.0, -15.2, 0.8);
-    skeletonGroup.add(footL);
-    boneList.push({ regionId: 'ankle_foot_l', name_ar: 'كاحل وقدم الرجل اليسرى (Left Ankle & Foot)', name_en: 'Left Ankle & Foot', mesh: footL });
-
-    boneMeshesRef.current = boneList;
-
-    // 6. Holographic Markers Group
+    // 6. Markers Group
     const markersGroup = new THREE.Group();
+    scene.add(markersGroup);
     markersGroupRef.current = markersGroup;
-    skeletonGroup.add(markersGroup);
 
-    // 7. Raycaster for 3D picking
+    // 7. Load Real Anatomical GLB Skeleton
+    const loader = new GLTFLoader();
+    setIsLoading(true);
+
+    loader.load(
+      '/models/skeleton.glb',
+      (gltf) => {
+        const model = gltf.scene;
+        skeletonModelRef.current = model;
+
+        // Auto-center and normalize bounding box
+        const bbox = new THREE.Box3().setFromObject(model);
+        const center = bbox.getCenter(new THREE.Vector3());
+        const size = bbox.getSize(new THREE.Vector3());
+
+        // Center model at (0, 0, 0)
+        model.position.x = -center.x;
+        model.position.y = -center.y;
+        model.position.z = -center.z;
+
+        // Normalize scale to fit nicely in 3.8 units height
+        const maxDim = Math.max(size.x, size.y, size.z);
+        const scaleFactor = 3.8 / maxDim;
+        model.scale.set(scaleFactor, scaleFactor, scaleFactor);
+
+        const meshesList: BoneMeshInfo[] = [];
+
+        model.traverse((child) => {
+          if (child instanceof THREE.Mesh) {
+            child.castShadow = true;
+            child.receiveShadow = true;
+
+            const mapped = mapNodeToRegion(child.name);
+            const worldPos = new THREE.Vector3();
+            child.getWorldPosition(worldPos);
+
+            const boneInfo: BoneMeshInfo = {
+              regionId: mapped.regionId,
+              nodeName: child.name,
+              name_ar: mapped.name_ar,
+              name_en: mapped.name_en,
+              mesh: child,
+              originalPosition: worldPos,
+            };
+
+            child.userData = { boneInfo };
+            meshesList.push(boneInfo);
+          }
+        });
+
+        boneMeshesRef.current = meshesList;
+        scene.add(model);
+        setIsLoading(false);
+      },
+      (xhr) => {
+        if (xhr.total > 0) {
+          setLoadProgress(Math.round((xhr.loaded / xhr.total) * 100));
+        }
+      },
+      (err) => {
+        console.error('Failed to load skeleton GLB:', err);
+        setIsLoading(false);
+      }
+    );
+
+    // 8. Raycasting for picking bones
     const raycaster = new THREE.Raycaster();
     const mouse = new THREE.Vector2();
 
-    const handlePointerDown = (e: MouseEvent) => {
-      isDraggingRef.current = true;
-      prevMouseRef.current = { x: e.clientX, y: e.clientY };
+    const getIntersectedBone = (e: MouseEvent): { hit: THREE.Intersection; bone: BoneMeshInfo } | null => {
+      const rect = renderer.domElement.getBoundingClientRect();
+      mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+
+      raycaster.setFromCamera(mouse, camera);
+
+      if (!skeletonModelRef.current) return null;
+      const intersects = raycaster.intersectObjects(skeletonModelRef.current.children, true);
+
+      if (intersects.length > 0) {
+        const topHit = intersects[0];
+        let curr: THREE.Object3D | null = topHit.object;
+        while (curr) {
+          if (curr.userData && curr.userData.boneInfo) {
+            return { hit: topHit, bone: curr.userData.boneInfo as BoneMeshInfo };
+          }
+          curr = curr.parent;
+        }
+      }
+      return null;
     };
 
     const handlePointerMove = (e: MouseEvent) => {
-      if (isDraggingRef.current) {
-        const deltaX = e.clientX - prevMouseRef.current.x;
-        const deltaY = e.clientY - prevMouseRef.current.y;
-
-        rotationTargetRef.current.y += deltaX * 0.008;
-        rotationTargetRef.current.x += deltaY * 0.008;
-
-        prevMouseRef.current = { x: e.clientX, y: e.clientY };
-      }
-
-      // Raycast detection
-      const rect = renderer.domElement.getBoundingClientRect();
-      mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-      mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
-
-      raycaster.setFromCamera(mouse, camera);
-      const allMeshes: THREE.Object3D[] = [];
-      boneMeshesRef.current.forEach(b => {
-        if (b.mesh instanceof THREE.Group) {
-          allMeshes.push(...b.mesh.children);
-        } else {
-          allMeshes.push(b.mesh);
-        }
-      });
-
-      const intersects = raycaster.intersectObjects(allMeshes);
-      if (intersects.length > 0) {
-        const hitMesh = intersects[0].object;
-        const match = boneMeshesRef.current.find(b => 
-          b.mesh === hitMesh || (b.mesh instanceof THREE.Group && b.mesh.children.includes(hitMesh))
-        );
-        if (match) {
-          setHoveredBone(locale === 'ar' ? match.name_ar : match.name_en);
-        }
-      } else {
-        setHoveredBone(null);
-      }
+      const res = getIntersectedBone(e);
+      setHoveredBone(res?.bone || null);
+      renderer.domElement.style.cursor = res ? 'pointer' : 'grab';
     };
 
-    const handlePointerUp = () => {
-      isDraggingRef.current = false;
-    };
-
-    const handleCanvasClick = (e: MouseEvent) => {
+    const handleClick = (e: MouseEvent) => {
       if (readOnly) return;
-      const rect = renderer.domElement.getBoundingClientRect();
-      mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-      mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
-
-      raycaster.setFromCamera(mouse, camera);
-      const allMeshes: THREE.Object3D[] = [];
-      boneMeshesRef.current.forEach(b => {
-        if (b.mesh instanceof THREE.Group) {
-          allMeshes.push(...b.mesh.children);
-        } else {
-          allMeshes.push(b.mesh);
-        }
-      });
-
-      const intersects = raycaster.intersectObjects(allMeshes);
-      if (intersects.length > 0) {
-        const hitMesh = intersects[0].object;
-        const match = boneMeshesRef.current.find(b => 
-          b.mesh === hitMesh || (b.mesh instanceof THREE.Group && b.mesh.children.includes(hitMesh))
-        );
-        if (match) {
-          setActiveModalRegion({ regionId: match.regionId, name: locale === 'ar' ? match.name_ar : match.name_en });
-          setFindingType('fracture_closed');
-          setSeverity('moderate');
-          setPainScale(6);
-          setDescription('');
-          setTreatment('');
-        }
+      const res = getIntersectedBone(e);
+      if (res) {
+        const b = res.bone;
+        setActiveModalRegion({
+          regionId: b.regionId,
+          name_ar: b.name_ar,
+          name_en: b.name_en,
+          worldPos: res.hit.point.clone(),
+        });
       }
     };
 
-    const domElement = renderer.domElement;
-    domElement.addEventListener('mousedown', handlePointerDown);
-    window.addEventListener('mousemove', handlePointerMove);
-    window.addEventListener('mouseup', handlePointerUp);
-    domElement.addEventListener('click', handleCanvasClick);
+    const dom = renderer.domElement;
+    dom.addEventListener('mousemove', handlePointerMove);
+    dom.addEventListener('click', handleClick);
 
-    // Zoom on Wheel
-    const handleWheel = (e: WheelEvent) => {
-      e.preventDefault();
-      camera.position.z = THREE.MathUtils.clamp(camera.position.z + e.deltaY * 0.02, 12, 60);
-    };
-    domElement.addEventListener('wheel', handleWheel, { passive: false });
-
-    // 8. Animation Loop
+    // 9. Animation Loop
     let animId: number;
-    let clock = new THREE.Clock();
+    const clock = new THREE.Clock();
 
     const animate = () => {
       animId = requestAnimationFrame(animate);
-      const delta = clock.getDelta();
+      const elapsed = clock.getElapsedTime();
 
-      // Smooth damping rotation
-      skeletonGroup.rotation.y += (rotationTargetRef.current.y - skeletonGroup.rotation.y) * 0.1;
-      skeletonGroup.rotation.x += (rotationTargetRef.current.x - skeletonGroup.rotation.x) * 0.1;
-      skeletonGroup.rotation.x = THREE.MathUtils.clamp(skeletonGroup.rotation.x, -0.6, 0.6);
+      controls.update();
 
-      // Pulse markers in 3D
+      // Pulsing 3D marker pins
       if (markersGroupRef.current) {
-        const t = clock.getElapsedTime() * 3;
         markersGroupRef.current.children.forEach((child, i) => {
-          const s = 1 + Math.sin(t + i) * 0.15;
-          child.scale.set(s, s, s);
+          const ring = child.getObjectByName('pulseRing');
+          if (ring) {
+            const scale = 1 + Math.sin(elapsed * 4 + i) * 0.3;
+            ring.scale.set(scale, scale, scale);
+          }
         });
       }
 
@@ -458,89 +330,171 @@ export const SkeletonViewer3D: React.FC<SkeletonViewer3DProps> = ({
     };
     animate();
 
-    // Resize handler
     const handleResize = () => {
-      if (!container || !camera || !renderer) return;
+      if (!container) return;
       const w = container.clientWidth;
-      camera.aspect = w / height;
+      const h = container.clientHeight || 560;
+      camera.aspect = w / h;
       camera.updateProjectionMatrix();
-      renderer.setSize(w, height);
+      renderer.setSize(w, h);
     };
     window.addEventListener('resize', handleResize);
 
     return () => {
       cancelAnimationFrame(animId);
-      domElement.removeEventListener('mousedown', handlePointerDown);
-      window.removeEventListener('mousemove', handlePointerMove);
-      window.removeEventListener('mouseup', handlePointerUp);
-      domElement.removeEventListener('click', handleCanvasClick);
-      domElement.removeEventListener('wheel', handleWheel);
+      dom.removeEventListener('mousemove', handlePointerMove);
+      dom.removeEventListener('click', handleClick);
       window.removeEventListener('resize', handleResize);
+      controls.dispose();
       renderer.dispose();
-    };
-  }, [shaderMode, locale]);
-
-  // Update 3D Pins when findings change
-  useEffect(() => {
-    const group = markersGroupRef.current;
-    if (!group) return;
-
-    // Clear old marker meshes
-    while (group.children.length > 0) {
-      group.remove(group.children[0]);
-    }
-
-    // Add pins for current findings
-    findings.forEach(f => {
-      const match = boneMeshesRef.current.find(b => b.regionId === f.regionId);
-      if (match) {
-        const pos = new THREE.Vector3();
-        match.mesh.getWorldPosition(pos);
-
-        // Marker Sphere
-        const pinGeom = new THREE.SphereGeometry(0.5, 16, 16);
-        const pinMat = new THREE.MeshBasicMaterial({ color: 0xef4444 });
-        const pinMesh = new THREE.Mesh(pinGeom, pinMat);
-
-        // Holographic Outer Ring
-        const ringGeom = new THREE.RingGeometry(0.6, 0.85, 24);
-        const ringMat = new THREE.MeshBasicMaterial({ color: 0xf59e0b, side: THREE.DoubleSide });
-        const ringMesh = new THREE.Mesh(ringGeom, ringMat);
-        ringMesh.position.z = 0.1;
-        pinMesh.add(ringMesh);
-
-        pinMesh.position.copy(pos);
-        group.add(pinMesh);
+      if (container.contains(dom)) {
+        container.removeChild(dom);
       }
+    };
+  }, []);
+
+  // Update Shader Materials based on mode & Hover
+  useEffect(() => {
+    if (!boneMeshesRef.current.length) return;
+
+    boneMeshesRef.current.forEach((bInfo) => {
+      const isHovered = hoveredBone?.nodeName === bInfo.nodeName;
+
+      let color = 0x38BDF8;
+      let roughness = 0.2;
+      let metalness = 0.1;
+      let opacity = 0.75;
+      let transparent = true;
+      let emissive = 0x0284C7;
+      let emissiveIntensity = 0.25;
+
+      if (shaderMode === 'xray') {
+        // High-end medical X-Ray Hologram
+        color = 0x38BDF8;
+        roughness = 0.15;
+        metalness = 0.2;
+        transparent = true;
+        opacity = 0.72;
+        emissive = 0x0369A1;
+        emissiveIntensity = 0.3;
+      } else if (shaderMode === 'anatomical') {
+        // Genuine medical ivory bone
+        color = 0xF5F0E6;
+        roughness = 0.45;
+        metalness = 0.05;
+        transparent = false;
+        opacity = 1.0;
+        emissive = 0x000000;
+        emissiveIntensity = 0.0;
+      } else if (shaderMode === 'thermal') {
+        // Thermal pain heatmap
+        const y = bInfo.mesh.position.y;
+        if (bInfo.regionId.includes('knee') || bInfo.regionId.includes('lumbar')) {
+          color = 0xEF4444; // Inflamed red
+          emissive = 0xB91C1C;
+        } else {
+          color = 0x0284C7; // Cool blue
+          emissive = 0x0369A1;
+        }
+        roughness = 0.25;
+        transparent = true;
+        opacity = 0.85;
+      }
+
+      if (isHovered) {
+        emissive = 0x10B981; // Bright emerald highlight
+        emissiveIntensity = 0.9;
+        opacity = 0.95;
+      }
+
+      bInfo.mesh.material = new THREE.MeshStandardMaterial({
+        color,
+        roughness,
+        metalness,
+        transparent,
+        opacity,
+        emissive,
+        emissiveIntensity,
+      });
+    });
+  }, [shaderMode, hoveredBone]);
+
+  // Render 3D Holographic Pins for findings
+  useEffect(() => {
+    if (!markersGroupRef.current) return;
+    const group = markersGroupRef.current;
+    group.clear();
+
+    findings.forEach((finding) => {
+      // Find matching bone mesh
+      const bone = boneMeshesRef.current.find((b) => b.regionId === finding.regionId);
+      if (!bone) return;
+
+      const marker = new THREE.Group();
+      const pos = new THREE.Vector3();
+      bone.mesh.getWorldPosition(pos);
+
+      // Offset slightly forward
+      pos.z += 0.08;
+      marker.position.copy(pos);
+
+      // 1. Core Sphere
+      const sphereGeo = new THREE.SphereGeometry(0.045, 16, 16);
+      const sphereMat = new THREE.MeshStandardMaterial({
+        color: 0xEF4444,
+        emissive: 0xDC2626,
+        emissiveIntensity: 0.9,
+      });
+      const sphere = new THREE.Mesh(sphereGeo, sphereMat);
+      marker.add(sphere);
+
+      // 2. Holographic Pulsing Ring
+      const ringGeo = new THREE.RingGeometry(0.06, 0.085, 24);
+      const ringMat = new THREE.MeshBasicMaterial({
+        color: 0xF59E0B,
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0.85,
+      });
+      const ring = new THREE.Mesh(ringGeo, ringMat);
+      ring.name = 'pulseRing';
+      marker.add(ring);
+
+      marker.userData = { finding };
+      group.add(marker);
     });
   }, [findings]);
 
-  const handleResetCamera = () => {
-    rotationTargetRef.current = { x: 0, y: 0 };
-    if (cameraRef.current) {
-      cameraRef.current.position.set(0, 0, 32);
+  // Camera presets
+  const setCameraView = (view: 'front' | 'back' | 'skull' | 'pelvis' | 'knees') => {
+    if (!cameraRef.current || !controlsRef.current) return;
+    const cam = cameraRef.current;
+    const ctrl = controlsRef.current;
+
+    if (view === 'front') {
+      cam.position.set(0, 0, 5.8);
+      ctrl.target.set(0, 0, 0);
+    } else if (view === 'back') {
+      cam.position.set(0, 0, -5.8);
+      ctrl.target.set(0, 0, 0);
+    } else if (view === 'skull') {
+      cam.position.set(0, 1.4, 2.5);
+      ctrl.target.set(0, 1.4, 0);
+    } else if (view === 'pelvis') {
+      cam.position.set(0, -0.2, 2.5);
+      ctrl.target.set(0, -0.2, 0);
+    } else if (view === 'knees') {
+      cam.position.set(0, -1.3, 2.5);
+      ctrl.target.set(0, -1.3, 0);
     }
+    ctrl.update();
   };
 
-  const handleRotateLeft = () => {
-    rotationTargetRef.current.y -= Math.PI / 4;
-  };
-
-  const handleRotateRight = () => {
-    rotationTargetRef.current.y += Math.PI / 4;
-  };
-
-  const handleZoom = (delta: number) => {
-    if (cameraRef.current) {
-      cameraRef.current.position.z = THREE.MathUtils.clamp(cameraRef.current.position.z + delta, 12, 60);
-    }
-  };
-
-  const handleSaveModal = (e: React.FormEvent) => {
+  const handleSaveFinding = (e: React.FormEvent) => {
     e.preventDefault();
     if (!activeModalRegion) return;
 
-    const newF: OrthopedicFinding = {
+    const newFinding: OrthopedicFinding = {
       id: `ortho-3d-${Date.now()}`,
       regionId: activeModalRegion.regionId,
       view: 'anterior',
@@ -549,272 +503,306 @@ export const SkeletonViewer3D: React.FC<SkeletonViewer3DProps> = ({
       findingType,
       severity,
       painScale,
-      description: description || activeModalRegion.name,
+      description: description || `${activeModalRegion.name_ar} - ${findingType}`,
       treatmentRecommended: treatment,
     };
 
-    onChange([...findings, newF]);
+    onChange([...findings, newFinding]);
     setActiveModalRegion(null);
+    setDescription('');
+    setTreatment('');
   };
 
   const handleDeleteFinding = (id: string) => {
-    onChange(findings.filter(f => f.id !== id));
+    onChange(findings.filter((f) => f.id !== id));
   };
 
   return (
-    <div className="bg-slate-950 text-white rounded-3xl border border-slate-800 shadow-2xl overflow-hidden flex flex-col">
-      {/* 3D Viewport Toolbar */}
-      <div className="p-4 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3 bg-slate-900/80 backdrop-blur-md">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-ping" />
-            <h3 className="font-black text-sm sm:text-base text-cyan-300 flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-cyan-400" />
-              {locale === 'ar' ? 'المحرك التشخيصي ثلاثي الأبعاد لجراحة العظام (3D WebGL Engine)' : '3D WebGL Orthopedic Diagnostic Engine'}
-            </h3>
+    <div className="bg-slate-900 border border-slate-800 rounded-2xl shadow-xl overflow-hidden flex flex-col relative text-slate-100">
+      {/* 3D Header Toolbar */}
+      <div className="p-4 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3 bg-slate-950/70 backdrop-blur-md">
+        <div className="flex items-center gap-3">
+          <div className="p-2 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-400">
+            <Activity className="w-5 h-5" />
           </div>
-          <p className="text-xs text-slate-400 mt-0.5">
-            {locale === 'ar' ? 'تدوير كامل 360° بالسحب، تكبير بالبكرة، وفحص الأشعة السينية بالألوان الطيفية' : 'Full 360° Orbit rotation, Raycast bone picking & X-Ray Shader'}
-          </p>
+          <div>
+            <div className="flex items-center gap-2">
+              <h3 className="font-black text-sm sm:text-base text-white tracking-wide">
+                {locale === 'ar' ? 'الهيكل العظمي البشري ثلاثي الأبعاد 3D WebGL (242 عظمة حقيقية)' : '3D WebGL Human Skeleton (242 Anatomical Bones)'}
+              </h3>
+              <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/30">
+                Medical-Grade 3D
+              </span>
+            </div>
+            <p className="text-xs text-slate-400 mt-0.5">
+              {locale === 'ar' 
+                ? 'نموذج تشريحي طبي حقيقي كامل (BodyParts3D)، تدوير 360°، أشعة سينية شفافة، وخرائط الألم الحرارية' 
+                : 'Authentic 242-bone medical anatomical dataset, 360° orbit, X-Ray transparency & pain heatmap'}
+            </p>
+          </div>
         </div>
 
-        {/* Shader Mode Switches */}
-        <div className="flex items-center gap-2">
-          <div className="flex bg-slate-800 p-1 rounded-xl border border-slate-700 text-xs">
+        {/* View & Shader Controls */}
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Shaders */}
+          <div className="flex items-center bg-slate-800/80 border border-slate-700 rounded-xl p-1 text-xs">
             <button
               type="button"
               onClick={() => setShaderMode('xray')}
-              className={`px-3 py-1.5 rounded-lg font-bold transition-all ${
-                shaderMode === 'xray' ? 'bg-cyan-500 text-slate-950 shadow-md shadow-cyan-500/30' : 'text-slate-400 hover:text-white'
+              className={`px-2.5 py-1 rounded-lg font-bold transition-all ${
+                shaderMode === 'xray' ? 'bg-cyan-600 text-white shadow-xs' : 'text-slate-300 hover:text-white'
               }`}
             >
+              <Sparkles className="w-3.5 h-3.5 inline mr-1" />
               {locale === 'ar' ? 'أشعة سينية (X-Ray)' : 'X-Ray'}
             </button>
             <button
               type="button"
               onClick={() => setShaderMode('anatomical')}
-              className={`px-3 py-1.5 rounded-lg font-bold transition-all ${
-                shaderMode === 'anatomical' ? 'bg-white text-slate-950 shadow-md' : 'text-slate-400 hover:text-white'
+              className={`px-2.5 py-1 rounded-lg font-bold transition-all ${
+                shaderMode === 'anatomical' ? 'bg-cyan-600 text-white shadow-xs' : 'text-slate-300 hover:text-white'
               }`}
             >
-              {locale === 'ar' ? 'تشريحي واقعي' : 'Realistic'}
+              <Layers className="w-3.5 h-3.5 inline mr-1" />
+              {locale === 'ar' ? 'عظام واقعية (Bone)' : 'Bone'}
             </button>
             <button
               type="button"
               onClick={() => setShaderMode('thermal')}
-              className={`px-3 py-1.5 rounded-lg font-bold transition-all ${
-                shaderMode === 'thermal' ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/30' : 'text-slate-400 hover:text-white'
+              className={`px-2.5 py-1 rounded-lg font-bold transition-all ${
+                shaderMode === 'thermal' ? 'bg-cyan-600 text-white shadow-xs' : 'text-slate-300 hover:text-white'
               }`}
             >
-              {locale === 'ar' ? 'خريطة الألم (Thermal)' : 'Pain Heatmap'}
+              <Sliders className="w-3.5 h-3.5 inline mr-1" />
+              {locale === 'ar' ? 'حراري (Thermal)' : 'Thermal'}
             </button>
           </div>
 
-          {/* Orbit Navigation Controls */}
-          <div className="flex items-center gap-1 bg-slate-800 p-1 rounded-xl border border-slate-700">
+          {/* Camera Presets */}
+          <div className="flex items-center bg-slate-800/80 border border-slate-700 rounded-xl p-1 text-xs">
             <button
               type="button"
-              onClick={handleRotateLeft}
-              title="تدوير لليسار"
-              className="p-1.5 text-slate-300 hover:text-white hover:bg-slate-700 rounded-lg"
+              onClick={() => setCameraView('front')}
+              className="px-2 py-1 rounded-lg font-semibold text-slate-300 hover:text-white hover:bg-slate-700"
             >
-              ↺
+              {locale === 'ar' ? 'أمامي' : 'Front'}
             </button>
             <button
               type="button"
-              onClick={handleRotateRight}
-              title="تدوير لليمين"
-              className="p-1.5 text-slate-300 hover:text-white hover:bg-slate-700 rounded-lg"
+              onClick={() => setCameraView('back')}
+              className="px-2 py-1 rounded-lg font-semibold text-slate-300 hover:text-white hover:bg-slate-700"
             >
-              ↻
+              {locale === 'ar' ? 'خلفي' : 'Back'}
             </button>
             <button
               type="button"
-              onClick={() => handleZoom(-4)}
-              title="تكبير"
-              className="p-1.5 text-slate-300 hover:text-white hover:bg-slate-700 rounded-lg"
+              onClick={() => setCameraView('skull')}
+              className="px-2 py-1 rounded-lg font-semibold text-slate-300 hover:text-white hover:bg-slate-700"
             >
-              <ZoomIn className="w-3.5 h-3.5" />
+              {locale === 'ar' ? 'الجمجمة' : 'Skull'}
             </button>
             <button
               type="button"
-              onClick={() => handleZoom(4)}
-              title="تصغير"
-              className="p-1.5 text-slate-300 hover:text-white hover:bg-slate-700 rounded-lg"
+              onClick={() => setCameraView('pelvis')}
+              className="px-2 py-1 rounded-lg font-semibold text-slate-300 hover:text-white hover:bg-slate-700"
             >
-              <ZoomOut className="w-3.5 h-3.5" />
+              {locale === 'ar' ? 'الحوض' : 'Pelvis'}
             </button>
             <button
               type="button"
-              onClick={handleResetCamera}
-              title="إعادة ضبط المشهد"
-              className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg"
+              onClick={() => setCameraView('knees')}
+              className="px-2 py-1 rounded-lg font-semibold text-slate-300 hover:text-white hover:bg-slate-700"
             >
-              <RotateCcw className="w-3.5 h-3.5" />
+              {locale === 'ar' ? 'الركبتين' : 'Knees'}
             </button>
           </div>
+
+          {/* Reset Orbit */}
+          <button
+            type="button"
+            onClick={() => setCameraView('front')}
+            title={locale === 'ar' ? 'إعادة ضبط المنظر' : 'Reset Orbit'}
+            className="p-2 bg-slate-800 border border-slate-700 rounded-xl text-slate-300 hover:text-white hover:bg-slate-700"
+          >
+            <RotateCcw className="w-4 h-4" />
+          </button>
         </div>
       </div>
 
-      {/* 3D WebGL Canvas Viewport */}
-      <div className="relative w-full h-[540px] bg-radial from-slate-900 to-slate-950 flex items-center justify-center cursor-grab active:cursor-grabbing select-none overflow-hidden">
-        <div ref={mountRef} className="w-full h-full" />
+      {/* Main 3D Canvas Mount */}
+      <div className="relative w-full h-[560px] bg-gradient-to-b from-[#080C16] to-[#03060E] overflow-hidden select-none">
+        <div ref={mountRef} className="w-full h-full cursor-grab active:cursor-grabbing" />
 
-        {/* Hovered Bone Overlay HUD */}
-        {hoveredBone && (
-          <div className="absolute top-4 start-4 bg-slate-900/90 border border-cyan-500/40 px-4 py-2 rounded-xl text-xs font-bold text-cyan-300 shadow-xl backdrop-blur-md flex items-center gap-2 pointer-events-none animate-fade-in">
-            <span className="w-2 h-2 rounded-full bg-cyan-400" />
-            <span>{hoveredBone}</span>
+        {/* Loading Overlay */}
+        {isLoading && (
+          <div className="absolute inset-0 z-20 bg-slate-950/80 backdrop-blur-md flex flex-col items-center justify-center gap-3">
+            <Loader2 className="w-10 h-10 text-cyan-400 animate-spin" />
+            <div className="text-center">
+              <h4 className="font-bold text-white text-sm">
+                {locale === 'ar' ? 'جاري تحميل الهيكل العظمي البشري الطبي (242 عظمة)...' : 'Loading High-Res Anatomical 3D Model...'}
+              </h4>
+              <p className="text-xs text-slate-400 mt-1">
+                {loadProgress > 0 ? `${loadProgress}%` : locale === 'ar' ? 'يرجى الانتظار ثوانٍ معدودة' : 'Preparing WebGL shaders...'}
+              </p>
+            </div>
           </div>
         )}
 
-        {/* 3D Navigation Guide Pill */}
-        <div className="absolute bottom-4 start-4 text-[10px] text-slate-400 bg-slate-900/80 px-3 py-1.5 rounded-lg border border-slate-800 backdrop-blur-sm pointer-events-none flex items-center gap-2">
-          <span>🖱️ {locale === 'ar' ? 'اسحب بالماوس للتدوير 360° • عجلة الماوس للتكبير • اضغط على العظمة للتوثيق' : 'Drag to rotate 360° • Wheel to zoom • Click bone to document'}</span>
+        {/* Hover Bone Dynamic HUD Card */}
+        {hoveredBone && (
+          <div className="absolute top-4 left-4 z-10 bg-slate-900/90 border border-cyan-500/40 rounded-xl px-4 py-2.5 backdrop-blur-md shadow-2xl flex items-center gap-3 animate-fade-in pointer-events-none">
+            <div className="w-9 h-9 rounded-lg bg-cyan-500/20 border border-cyan-400/30 flex items-center justify-center font-black text-cyan-300 text-xs">
+              3D
+            </div>
+            <div>
+              <div className="font-black text-sm text-white">
+                {locale === 'ar' ? hoveredBone.name_ar : hoveredBone.name_en}
+              </div>
+              <div className="text-[10px] text-cyan-400 font-mono">
+                {hoveredBone.nodeName}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Orbit Helper Indicator */}
+        <div className="absolute bottom-3 right-4 z-10 pointer-events-none flex items-center gap-2 text-[11px] text-slate-400 bg-slate-950/70 px-3 py-1.5 rounded-lg border border-slate-800">
+          <RotateCcw className="w-3.5 h-3.5 text-cyan-400 animate-spin-slow" />
+          <span>{locale === 'ar' ? 'اسحب بالماوس للتدوير 360° | عجلات الماوس للتكبير | اضغط على أي عظمة للتشخيص' : 'Drag to orbit 360° | Scroll to zoom | Click bone to diagnose'}</span>
+        </div>
+
+        {/* Findings Count Pill */}
+        <div className="absolute bottom-3 left-4 z-10 flex items-center gap-2 bg-slate-950/80 px-3 py-1.5 rounded-xl border border-slate-800 text-xs">
+          <span className="w-2.5 h-2.5 rounded-full bg-rose-500 inline-block animate-ping"></span>
+          <span className="text-slate-300 font-bold">
+            {locale === 'ar' ? `الإصابات المرصودة (${findings.length})` : `Recorded Findings (${findings.length})`}
+          </span>
         </div>
       </div>
 
-      {/* Findings List Summary */}
-      {findings.length > 0 && (
-        <div className="p-4 bg-slate-900 border-t border-slate-800 space-y-2">
-          <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">
-            <Activity className="w-4 h-4 text-rose-500" />
-            {locale === 'ar' ? 'الإصابات الموثقة في النموذج ثلاثي الأبعاد:' : '3D Documented Skeletal Findings:'}
-          </h4>
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
-            {findings.map((f, i) => (
-              <div key={f.id} className="p-3 rounded-xl border border-slate-800 bg-slate-950/60 flex items-start justify-between text-xs">
-                <div>
-                  <div className="flex items-center gap-1.5">
-                    <span className="w-4 h-4 rounded-full bg-rose-500/20 text-rose-400 font-bold text-[10px] flex items-center justify-center">
-                      {i + 1}
-                    </span>
-                    <span className="font-bold text-slate-200">{f.description}</span>
-                  </div>
-                  <div className="mt-1 flex items-center gap-2 text-[10px] text-slate-400">
-                    <span className="text-amber-400">الألم: {f.painScale}/10</span>
-                    <span className="uppercase text-slate-500">{f.findingType.replace('_', ' ')}</span>
-                  </div>
-                </div>
-                {!readOnly && (
-                  <button
-                    type="button"
-                    onClick={() => handleDeleteFinding(f.id)}
-                    className="text-slate-500 hover:text-rose-400 p-1"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Finding Documentation Modal */}
+      {/* Clinical Finding Modal (Raycast Selection) */}
       {activeModalRegion && (
-        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 text-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-700 animate-scale-in">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800 mb-4">
-              <div className="flex items-center gap-2">
-                <AlertCircle className="w-5 h-5 text-cyan-400" />
-                <h3 className="font-bold text-sm sm:text-base text-cyan-300">
-                  {locale === 'ar' ? 'توثيق سريري على الهيكل ثلاثي الأبعاد' : '3D Clinical Skeletal Finding'}
-                </h3>
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-lg w-full p-6 shadow-2xl text-slate-100 animate-scale-up">
+            <div className="flex items-center justify-between pb-4 border-b border-slate-800">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-cyan-500/20 border border-cyan-500/30 flex items-center justify-center text-cyan-300">
+                  <Activity className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-white text-base">
+                    {locale === 'ar' ? activeModalRegion.name_ar : activeModalRegion.name_en}
+                  </h3>
+                  <span className="text-xs text-slate-400">
+                    {locale === 'ar' ? 'توثيق الإصابة السريرية وتثبيت الإشارة 3D' : 'Record orthopedic injury & place 3D pin'}
+                  </span>
+                </div>
               </div>
               <button
                 type="button"
                 onClick={() => setActiveModalRegion(null)}
-                className="text-slate-400 hover:text-white"
+                className="text-slate-400 hover:text-white p-1 rounded-lg"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <form onSubmit={handleSaveModal} className="space-y-4">
-              <div className="bg-cyan-950/40 p-3 rounded-xl border border-cyan-800/50">
-                <p className="text-xs text-cyan-400 font-semibold mb-0.5">
-                  {locale === 'ar' ? 'العظمة / المفصل المحدد في المشهد ثلاثي الأبعاد:' : 'Selected 3D Bone / Joint:'}
-                </p>
-                <p className="font-bold text-white text-sm">{activeModalRegion.name}</p>
-              </div>
-
+            <form onSubmit={handleSaveFinding} className="space-y-4 mt-4">
+              {/* Finding Type */}
               <div>
-                <label className="block text-xs font-bold text-slate-300 mb-1.5">
-                  {locale === 'ar' ? 'التشخيص ونوع الإصابة' : 'Pathology Type'}
+                <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                  {locale === 'ar' ? 'نوع الإصابة العظمية' : 'Injury Finding Type'}
                 </label>
                 <select
                   value={findingType}
-                  onChange={e => setFindingType(e.target.value as OrthoFindingType)}
-                  className="w-full text-sm rounded-xl border border-slate-700 bg-slate-800 p-2.5 text-white focus:ring-2 focus:ring-cyan-500"
+                  onChange={(e) => setFindingType(e.target.value as OrthoFindingType)}
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-cyan-500"
                 >
-                  <option value="fracture_closed">{locale === 'ar' ? 'كسر مغلق (Closed Fracture)' : 'Closed Fracture'}</option>
-                  <option value="fracture_open">{locale === 'ar' ? 'كسر مضاعف مفتوح (Open Fracture)' : 'Open Fracture'}</option>
-                  <option value="dislocation">{locale === 'ar' ? 'خلع مفصلي (Dislocation)' : 'Dislocation'}</option>
-                  <option value="sprain_strain">{locale === 'ar' ? 'تمزق أربطة أو غضروف هلالي (Sprain / Tear)' : 'Sprain / Ligament Tear'}</option>
-                  <option value="osteoarthritis">{locale === 'ar' ? 'خشونة وتآكل مفصلي (Osteoarthritis)' : 'Osteoarthritis'}</option>
-                  <option value="post_operative_hardware">{locale === 'ar' ? 'تثبيت جراحي سابق / شرائح ومسامير (Hardware)' : 'Hardware'}</option>
-                  <option value="point_tenderness">{locale === 'ar' ? 'نقطة ألم حادة وموضعية (Point Tenderness)' : 'Point Tenderness'}</option>
+                  <option value="fracture_closed">{locale === 'ar' ? 'كسر عظمي مغلق (Closed Fracture)' : 'Closed Fracture'}</option>
+                  <option value="fracture_open">{locale === 'ar' ? 'كسر عظمي مفتوح (Open Fracture)' : 'Open Fracture'}</option>
+                  <option value="dislocation">{locale === 'ar' ? 'خلع مفصلي (Dislocation)' : 'Joint Dislocation'}</option>
+                  <option value="sprain_strain">{locale === 'ar' ? 'التواء أو تمزق أربطة (Sprain / Strain)' : 'Sprain / Ligament Tear'}</option>
+                  <option value="osteoarthritis">{locale === 'ar' ? 'خشونة مفصل / تآكل غضروفي (Osteoarthritis)' : 'Osteoarthritis'}</option>
+                  <option value="tendon_tear">{locale === 'ar' ? 'تمزق وتر (Tendon Tear)' : 'Tendon Tear'}</option>
+                  <option value="point_tenderness">{locale === 'ar' ? 'ألم موضعي عند الضغط (Point Tenderness)' : 'Point Tenderness'}</option>
+                  <option value="post_operative_hardware">{locale === 'ar' ? 'شرائح ومسامير تثبيت (Post-op Hardware)' : 'Post-op Hardware'}</option>
                 </select>
               </div>
 
+              {/* Severity & Pain Scale */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-bold text-slate-300 mb-1.5">
-                    {locale === 'ar' ? 'الشدة السريرية' : 'Severity'}
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">
+                    {locale === 'ar' ? 'درجة الشدة' : 'Severity'}
                   </label>
                   <select
                     value={severity}
-                    onChange={e => setSeverity(e.target.value as 'mild' | 'moderate' | 'severe')}
-                    className="w-full text-sm rounded-xl border border-slate-700 bg-slate-800 p-2.5 text-white"
+                    onChange={(e) => setSeverity(e.target.value as any)}
+                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white"
                   >
-                    <option value="mild">{locale === 'ar' ? 'بسيط (Mild)' : 'Mild'}</option>
-                    <option value="moderate">{locale === 'ar' ? 'متوسط (Moderate)' : 'Moderate'}</option>
-                    <option value="severe">{locale === 'ar' ? 'شديد / حاد (Severe)' : 'Severe'}</option>
+                    <option value="mild">{locale === 'ar' ? 'بسيطة (Mild)' : 'Mild'}</option>
+                    <option value="moderate">{locale === 'ar' ? 'متوسطة (Moderate)' : 'Moderate'}</option>
+                    <option value="severe">{locale === 'ar' ? 'شديدة (Severe)' : 'Severe'}</option>
                   </select>
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-300 mb-1.5">
-                    {locale === 'ar' ? `مقياس الألم (${painScale}/10)` : `Pain Scale (${painScale}/10)`}
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">
+                    {locale === 'ar' ? `مقياس الألم (Pain Scale: ${painScale}/10)` : `Pain Scale (${painScale}/10)`}
                   </label>
                   <input
                     type="range"
-                    min="0"
-                    max="10"
+                    min={0}
+                    max={10}
                     value={painScale}
-                    onChange={e => setPainScale(Number(e.target.value))}
-                    className="w-full accent-cyan-400 mt-2"
+                    onChange={(e) => setPainScale(Number(e.target.value))}
+                    className="w-full accent-cyan-500 mt-2"
                   />
                 </div>
               </div>
 
+              {/* Description */}
               <div>
-                <label className="block text-xs font-bold text-slate-300 mb-1">
-                  {locale === 'ar' ? 'الملاحظات السريرية' : 'Clinical Description'}
+                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  {locale === 'ar' ? 'الوصف الإكلينيكي والفحص الموضعي' : 'Clinical Description'}
                 </label>
                 <textarea
                   rows={2}
                   value={description}
-                  onChange={e => setDescription(e.target.value)}
-                  placeholder={locale === 'ar' ? 'تفاصيل الإصابة، الفحص الموضعي...' : 'Clinical details...'}
-                  className="w-full text-sm rounded-xl border border-slate-700 bg-slate-800 p-2.5 text-white"
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder={locale === 'ar' ? 'تفاصيل الإصابة، الفحص الموضعي، حركة المفصل...' : 'Clinical details, ROM, swelling...'}
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl p-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500"
                 />
               </div>
 
-              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
+              {/* Treatment */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  {locale === 'ar' ? 'خطة العلاج الموصى بها' : 'Recommended Management Plan'}
+                </label>
+                <input
+                  type="text"
+                  value={treatment}
+                  onChange={(e) => setTreatment(e.target.value)}
+                  placeholder={locale === 'ar' ? 'مثال: جبيرة، راحة، مسكنات، رنين مغناطيسي...' : 'e.g. Cast immobilization, MRI, NSAIDs...'}
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl p-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                />
+              </div>
+
+              {/* Actions */}
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-800">
                 <button
                   type="button"
                   onClick={() => setActiveModalRegion(null)}
-                  className="px-4 py-2 text-sm text-slate-400 hover:bg-slate-800 rounded-xl"
+                  className="px-4 py-2 text-xs font-bold text-slate-400 hover:text-white"
                 >
                   {t.common.cancel}
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 text-sm bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-600 hover:to-blue-700 text-slate-950 font-black rounded-xl shadow-lg"
+                  className="px-5 py-2 text-xs font-bold bg-cyan-600 hover:bg-cyan-500 text-white rounded-xl shadow-lg shadow-cyan-600/30 transition-all"
                 >
-                  {locale === 'ar' ? 'تثبيت الإشارة ثلاثية الأبعاد' : 'Place 3D Pin'}
+                  {locale === 'ar' ? 'تثبيت الإشارة 3D في السجل' : 'Place 3D Pin'}
                 </button>
               </div>
             </form>

@@ -1,16 +1,18 @@
 // ============================================================================
-// MEDICORE – High-End 3D Interactive Dental Engine (Three.js WebGL Odontogram)
-// True 3D Maxillary & Mandibular Arches, Anatomical Teeth with Roots & Cusps,
-// Dynamic Clinical Pathologies (Caries, Zirconia/Gold Crowns, Implants, Endo, Fillings)
+// MEDICORE – High-End Medical-Grade 3D Dental Engine (Three.js WebGL)
+// Loads Authentic Anatomical 3D Teeth & Jaws Model (BodyParts3D GLB Dataset)
+// OrbitControls 360°, Maxilla/Mandible Arch View, Realistic Enamel, Gold/Zirconia Crowns
 // ============================================================================
 
 import React, { useRef, useEffect, useState } from 'react';
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { DentalCondition, ToothRecord, ToothSurface } from '../../types/specialty';
 import { useLanguage } from '../../context/LanguageContext';
 import { 
   Smile, RotateCcw, ZoomIn, ZoomOut, Eye, Check, X, 
-  Sparkles, DollarSign, Layers, Camera, ShieldAlert
+  Sparkles, DollarSign, Layers, Camera, Loader2, ShieldAlert
 } from 'lucide-react';
 
 interface OdontogramViewer3DProps {
@@ -20,30 +22,64 @@ interface OdontogramViewer3DProps {
 }
 
 type ArchFilter = 'both' | 'upper' | 'lower';
-type CameraView = 'perspective' | 'frontal' | 'occlusal_upper' | 'occlusal_lower';
 
 interface ToothMeshMeta {
   toothNumber: number;
+  nodeName: string;
   name_ar: string;
   name_en: string;
   isUpper: boolean;
-  type: 'incisor' | 'canine' | 'premolar' | 'molar';
-  mesh: THREE.Group;
+  mesh: THREE.Mesh;
 }
+
+const NODE_TO_FDI: Record<string, { fdi: number; isUpper: boolean; ar: string; en: string }> = {
+  'upper-right-central-incisor': { fdi: 11, isUpper: true, ar: 'القاطع المركزي العلوي الأيمن (11)', en: 'Upper Right Central Incisor (11)' },
+  'upper-right-lateral-incisor': { fdi: 12, isUpper: true, ar: 'القاطع الجانبي العلوي الأيمن (12)', en: 'Upper Right Lateral Incisor (12)' },
+  'upper-right-canine': { fdi: 13, isUpper: true, ar: 'الناب العلوي الأيمن (13)', en: 'Upper Right Canine (13)' },
+  'upper-right-first-premolar': { fdi: 14, isUpper: true, ar: 'الضاحك الأول العلوي الأيمن (14)', en: 'Upper Right First Premolar (14)' },
+  'upper-right-second-premolar': { fdi: 15, isUpper: true, ar: 'الضاحك الثاني العلوي الأيمن (15)', en: 'Upper Right Second Premolar (15)' },
+  'upper-right-first-molar': { fdi: 16, isUpper: true, ar: 'الضرس الأول العلوي الأيمن (16)', en: 'Upper Right First Molar (16)' },
+  'upper-right-second-molar': { fdi: 17, isUpper: true, ar: 'الضرس الثاني العلوي الأيمن (17)', en: 'Upper Right Second Molar (17)' },
+
+  'upper-left-central-incisor': { fdi: 21, isUpper: true, ar: 'القاطع المركزي العلوي الأيسر (21)', en: 'Upper Left Central Incisor (21)' },
+  'upper-left-lateral-incisor': { fdi: 22, isUpper: true, ar: 'القاطع الجانبي العلوي الأيسر (22)', en: 'Upper Left Lateral Incisor (22)' },
+  'upper-left-canine': { fdi: 23, isUpper: true, ar: 'الناب العلوي الأيسر (23)', en: 'Upper Left Canine (23)' },
+  'upper-left-first-premolar': { fdi: 24, isUpper: true, ar: 'الضاحك الأول العلوي الأيسر (24)', en: 'Upper Left First Premolar (24)' },
+  'upper-left-second-premolar': { fdi: 25, isUpper: true, ar: 'الضاحك الثاني العلوي الأيسر (25)', en: 'Upper Left Second Premolar (25)' },
+  'upper-left-first-molar': { fdi: 26, isUpper: true, ar: 'الضرس الأول العلوي الأيسر (26)', en: 'Upper Left First Molar (26)' },
+  'upper-left-second-molar': { fdi: 27, isUpper: true, ar: 'الضرس الثاني العلوي الأيسر (27)', en: 'Upper Left Second Molar (27)' },
+
+  'lower-left-central-incisor': { fdi: 31, isUpper: false, ar: 'القاطع المركزي السفلي الأيسر (31)', en: 'Lower Left Central Incisor (31)' },
+  'lower-left-lateral-incisor': { fdi: 32, isUpper: false, ar: 'القاطع الجانبي السفلي الأيسر (32)', en: 'Lower Left Lateral Incisor (32)' },
+  'lower-left-canine': { fdi: 33, isUpper: false, ar: 'الناب السفلي الأيسر (33)', en: 'Lower Left Canine (33)' },
+  'lower-left-first-premolar': { fdi: 34, isUpper: false, ar: 'الضاحك الأول السفلي الأيسر (34)', en: 'Lower Left First Premolar (34)' },
+  'lower-left-second-premolar': { fdi: 35, isUpper: false, ar: 'الضاحك الثاني السفلي الأيسر (35)', en: 'Lower Left Second Premolar (35)' },
+  'lower-left-first-molar': { fdi: 36, isUpper: false, ar: 'الضرس الأول السفلي الأيسر (36)', en: 'Lower Left First Molar (36)' },
+  'lower-left-second-molar': { fdi: 37, isUpper: false, ar: 'الضرس الثاني السفلي الأيسر (37)', en: 'Lower Left Second Molar (37)' },
+
+  'lower-right-central-incisor': { fdi: 41, isUpper: false, ar: 'القاطع المركزي السفلي الأيمن (41)', en: 'Lower Right Central Incisor (41)' },
+  'lower-right-lateral-incisor': { fdi: 42, isUpper: false, ar: 'القاطع الجانبي السفلي الأيمن (42)', en: 'Lower Right Lateral Incisor (42)' },
+  'lower-right-canine': { fdi: 43, isUpper: false, ar: 'الناب السفلي الأيمن (43)', en: 'Lower Right Canine (43)' },
+  'lower-right-first-premolar': { fdi: 44, isUpper: false, ar: 'الضاحك الأول السفلي الأيمن (44)', en: 'Lower Right First Premolar (44)' },
+  'lower-right-second-premolar': { fdi: 45, isUpper: false, ar: 'الضاحك الثاني السفلي الأيمن (45)', en: 'Lower Right Second Premolar (45)' },
+  'lower-right-first-molar': { fdi: 46, isUpper: false, ar: 'الضرس الأول السفلي الأيمن (46)', en: 'Lower Right First Molar (46)' },
+  'lower-right-second-molar': { fdi: 47, isUpper: false, ar: 'الضرس الثاني السفلي الأيمن (47)', en: 'Lower Right Second Molar (47)' },
+};
 
 export const OdontogramViewer3D: React.FC<OdontogramViewer3DProps> = ({
   records,
   onChange,
   readOnly = false,
 }) => {
-  const { locale } = useLanguage();
+  const { locale, t } = useLanguage();
   const mountRef = useRef<HTMLDivElement>(null);
 
   // States
   const [archFilter, setArchFilter] = useState<ArchFilter>('both');
-  const [dentitionType, setDentitionType] = useState<'adult' | 'pediatric'>('adult');
   const [hoveredTooth, setHoveredTooth] = useState<ToothMeshMeta | null>(null);
   const [activeModalTooth, setActiveModalTooth] = useState<ToothMeshMeta | null>(null);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [loadProgress, setLoadProgress] = useState<number>(0);
 
   // Modal edit fields
   const [condition, setCondition] = useState<DentalCondition>('sound');
@@ -56,154 +92,25 @@ export const OdontogramViewer3D: React.FC<OdontogramViewer3DProps> = ({
   const sceneRef = useRef<THREE.Scene | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
+  const controlsRef = useRef<OrbitControls | null>(null);
   const toothMeshesRef = useRef<ToothMeshMeta[]>([]);
-  const upperArchGroupRef = useRef<THREE.Group | null>(null);
-  const lowerArchGroupRef = useRef<THREE.Group | null>(null);
+  const teethModelRef = useRef<THREE.Group | null>(null);
 
-  // Mouse drag & interaction
-  const isDraggingRef = useRef(false);
-  const prevMouseRef = useRef({ x: 0, y: 0 });
-  const rotationTargetRef = useRef({ x: 0.3, y: 0 });
-
-  // Tooth Names dictionary (FDI)
-  const getToothName = (num: number) => {
-    const isAr = locale === 'ar';
-    const names: Record<number, { ar: string; en: string; type: 'incisor' | 'canine' | 'premolar' | 'molar' }> = {
-      // Upper Right (Q1)
-      18: { ar: 'ضرس العقل العلوي الأيمن (18)', en: 'Upper Right Third Molar (18)', type: 'molar' },
-      17: { ar: 'الضرس الثاني العلوي الأيمن (17)', en: 'Upper Right Second Molar (17)', type: 'molar' },
-      16: { ar: 'الضرس الأول العلوي الأيمن (16)', en: 'Upper Right First Molar (16)', type: 'molar' },
-      15: { ar: 'الضاحك الثاني العلوي الأيمن (15)', en: 'Upper Right Second Premolar (15)', type: 'premolar' },
-      14: { ar: 'الضاحك الأول العلوي الأيمن (14)', en: 'Upper Right First Premolar (14)', type: 'premolar' },
-      13: { ar: 'الناب العلوي الأيمن (13)', en: 'Upper Right Canine (13)', type: 'canine' },
-      12: { ar: 'القاطع الجانبي العلوي الأيمن (12)', en: 'Upper Right Lateral Incisor (12)', type: 'incisor' },
-      11: { ar: 'القاطع المركزي العلوي الأيمن (11)', en: 'Upper Right Central Incisor (11)', type: 'incisor' },
-      // Upper Left (Q2)
-      21: { ar: 'القاطع المركزي العلوي الأيسر (21)', en: 'Upper Left Central Incisor (21)', type: 'incisor' },
-      22: { ar: 'القاطع الجانبي العلوي الأيسر (22)', en: 'Upper Left Lateral Incisor (22)', type: 'incisor' },
-      23: { ar: 'الناب العلوي الأيسر (23)', en: 'Upper Left Canine (23)', type: 'canine' },
-      24: { ar: 'الضاحك الأول العلوي الأيسر (24)', en: 'Upper Left First Premolar (24)', type: 'premolar' },
-      25: { ar: 'الضاحك الثاني العلوي الأيسر (25)', en: 'Upper Left Second Premolar (25)', type: 'premolar' },
-      26: { ar: 'الضرس الأول العلوي الأيسر (26)', en: 'Upper Left First Molar (26)', type: 'molar' },
-      27: { ar: 'الضرس الثاني العلوي الأيسر (27)', en: 'Upper Left Second Molar (27)', type: 'molar' },
-      28: { ar: 'ضرس العقل العلوي الأيسر (28)', en: 'Upper Left Third Molar (28)', type: 'molar' },
-      // Lower Left (Q3)
-      38: { ar: 'ضرس العقل السفلي الأيسر (38)', en: 'Lower Left Third Molar (38)', type: 'molar' },
-      37: { ar: 'الضرس الثاني السفلي الأيسر (37)', en: 'Lower Left Second Molar (37)', type: 'molar' },
-      36: { ar: 'الضرس الأول السفلي الأيسر (36)', en: 'Lower Left First Molar (36)', type: 'molar' },
-      35: { ar: 'الضاحك الثاني السفلي الأيسر (35)', en: 'Lower Left Second Premolar (35)', type: 'premolar' },
-      34: { ar: 'الضاحك الأول السفلي الأيسر (34)', en: 'Lower Left First Premolar (34)', type: 'premolar' },
-      33: { ar: 'الناب السفلي الأيسر (33)', en: 'Lower Left Canine (33)', type: 'canine' },
-      32: { ar: 'القاطع الجانبي السفلي الأيسر (32)', en: 'Lower Left Lateral Incisor (32)', type: 'incisor' },
-      31: { ar: 'القاطع المركزي السفلي الأيسر (31)', en: 'Lower Left Central Incisor (31)', type: 'incisor' },
-      // Lower Right (Q4)
-      41: { ar: 'القاطع المركزي السفلي الأيمن (41)', en: 'Lower Right Central Incisor (41)', type: 'incisor' },
-      42: { ar: 'القاطع الجانبي السفلي الأيمن (42)', en: 'Lower Right Lateral Incisor (42)', type: 'incisor' },
-      43: { ar: 'الناب السفلي الأيمن (43)', en: 'Lower Right Canine (43)', type: 'canine' },
-      44: { ar: 'الضاحك الأول السفلي الأيمن (44)', en: 'Lower Right First Premolar (44)', type: 'premolar' },
-      45: { ar: 'الضاحك الثاني السفلي الأيمن (45)', en: 'Lower Right Second Premolar (45)', type: 'premolar' },
-      46: { ar: 'الضرس الأول السفلي الأيمن (46)', en: 'Lower Right First Molar (46)', type: 'molar' },
-      47: { ar: 'الضرس الثاني السفلي الأيمن (47)', en: 'Lower Right Second Molar (47)', type: 'molar' },
-      48: { ar: 'ضرس العقل السفلي الأيمن (48)', en: 'Lower Right Third Molar (48)', type: 'molar' },
-    };
-
-    return names[num] || { 
-      ar: `سن رقم ${num}`, 
-      en: `Tooth #${num}`, 
-      type: num % 10 >= 6 ? 'molar' : num % 10 >= 4 ? 'premolar' : num % 10 === 3 ? 'canine' : 'incisor' 
-    };
-  };
-
-  // Helper to build 3D tooth geometry
-  const createTooth3D = (type: 'incisor' | 'canine' | 'premolar' | 'molar', isUpper: boolean) => {
-    const group = new THREE.Group();
-
-    // 1. Crown Geometry
-    let crownGeo: THREE.BufferGeometry;
-    if (type === 'incisor') {
-      crownGeo = new THREE.BoxGeometry(0.55, 0.7, 0.35);
-    } else if (type === 'canine') {
-      crownGeo = new THREE.ConeGeometry(0.35, 0.85, 8);
-    } else if (type === 'premolar') {
-      crownGeo = new THREE.CylinderGeometry(0.42, 0.45, 0.65, 8);
-    } else {
-      // Molar: broad multi-cusp top
-      crownGeo = new THREE.BoxGeometry(0.85, 0.75, 0.8);
-    }
-
-    const defaultMat = new THREE.MeshStandardMaterial({
-      color: 0xFDFBF7,
-      roughness: 0.25,
-      metalness: 0.05,
-    });
-
-    const crownMesh = new THREE.Mesh(crownGeo, defaultMat);
-    crownMesh.castShadow = true;
-    crownMesh.receiveShadow = true;
-    crownMesh.name = 'crown';
-    group.add(crownMesh);
-
-    // 2. Root Geometry
-    const rootMat = new THREE.MeshStandardMaterial({
-      color: 0xEAD8C0,
-      roughness: 0.4,
-      metalness: 0.0,
-    });
-
-    const rootLength = type === 'canine' ? 1.1 : type === 'molar' ? 0.9 : 0.8;
-    const rootDir = isUpper ? 1 : -1;
-
-    if (type === 'molar') {
-      // 2 roots for visual realism
-      const root1 = new THREE.Mesh(new THREE.ConeGeometry(0.2, rootLength, 6), rootMat);
-      root1.position.set(-0.25, rootDir * (0.35 + rootLength / 2), 0);
-      root1.rotation.z = isUpper ? Math.PI : 0;
-      root1.name = 'root1';
-      group.add(root1);
-
-      const root2 = new THREE.Mesh(new THREE.ConeGeometry(0.2, rootLength, 6), rootMat);
-      root2.position.set(0.25, rootDir * (0.35 + rootLength / 2), 0);
-      root2.rotation.z = isUpper ? Math.PI : 0;
-      root2.name = 'root2';
-      group.add(root2);
-    } else {
-      const singleRoot = new THREE.Mesh(new THREE.ConeGeometry(0.22, rootLength, 6), rootMat);
-      singleRoot.position.set(0, rootDir * (0.35 + rootLength / 2), 0);
-      singleRoot.rotation.z = isUpper ? Math.PI : 0;
-      singleRoot.name = 'root';
-      group.add(singleRoot);
-    }
-
-    // 3. Occlusal marker surface (interactive surface indicator)
-    const occlusalSurface = new THREE.Mesh(
-      new THREE.CircleGeometry(0.25, 8),
-      new THREE.MeshBasicMaterial({ color: 0x94A3B8, transparent: true, opacity: 0.0 })
-    );
-    occlusalSurface.position.set(0, isUpper ? -0.36 : 0.36, 0);
-    occlusalSurface.rotation.x = isUpper ? Math.PI / 2 : -Math.PI / 2;
-    occlusalSurface.name = 'surface_O';
-    group.add(occlusalSurface);
-
-    return group;
-  };
-
-  // Build Dental Arch and Scene
   useEffect(() => {
     const container = mountRef.current;
     if (!container) return;
 
     const width = container.clientWidth || 700;
-    const height = 540;
+    const height = 560;
 
     // 1. Scene
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x0A0F1D); // Deep surgical dark blue
+    scene.background = new THREE.Color(0x060913);
     sceneRef.current = scene;
 
     // 2. Camera
     const camera = new THREE.PerspectiveCamera(40, width / height, 0.1, 100);
-    camera.position.set(0, 3.5, 9.5);
-    camera.lookAt(0, 0, 0);
+    camera.position.set(0, 1.8, 4.2);
     cameraRef.current = camera;
 
     // 3. Renderer
@@ -216,163 +123,139 @@ export const OdontogramViewer3D: React.FC<OdontogramViewer3DProps> = ({
     container.innerHTML = '';
     container.appendChild(renderer.domElement);
 
-    // 4. Lights
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.85);
+    // 4. OrbitControls
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.06;
+    controls.minDistance = 1.0;
+    controls.maxDistance = 8.0;
+    controls.target.set(0, 0, 0);
+    controlsRef.current = controls;
+
+    // 5. Lighting
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.95);
     scene.add(ambientLight);
 
-    const keyLight = new THREE.DirectionalLight(0xffffff, 1.4);
-    keyLight.position.set(5, 8, 7);
-    keyLight.castShadow = true;
+    const keyLight = new THREE.DirectionalLight(0xffffff, 1.5);
+    keyLight.position.set(4, 6, 5);
     scene.add(keyLight);
 
-    const fillLight = new THREE.DirectionalLight(0x38BDF8, 0.6); // Cyan rim light
-    fillLight.position.set(-5, -4, 5);
-    scene.add(fillLight);
+    const cyanRim = new THREE.DirectionalLight(0x38BDF8, 0.7);
+    cyanRim.position.set(-5, -3, 4);
+    scene.add(cyanRim);
 
-    const backLight = new THREE.DirectionalLight(0x818CF8, 0.5); // Indigo backlight
-    backLight.position.set(0, 6, -8);
-    scene.add(backLight);
+    const topFill = new THREE.DirectionalLight(0xFDFBF7, 0.8);
+    topFill.position.set(0, 6, -3);
+    scene.add(topFill);
 
-    // 5. Build Arches
-    const upperArchGroup = new THREE.Group();
-    upperArchGroup.name = 'upperArch';
-    scene.add(upperArchGroup);
-    upperArchGroupRef.current = upperArchGroup;
+    // 6. Load Authentic 3D Teeth GLB
+    const loader = new GLTFLoader();
+    setIsLoading(true);
 
-    const lowerArchGroup = new THREE.Group();
-    lowerArchGroup.name = 'lowerArch';
-    scene.add(lowerArchGroup);
-    lowerArchGroupRef.current = lowerArchGroup;
+    loader.load(
+      '/models/teeth.glb',
+      (gltf) => {
+        const model = gltf.scene;
+        teethModelRef.current = model;
 
-    // Gum tissue curves
-    const createGumMesh = (isUpper: boolean) => {
-      const gumCurve = new THREE.CatmullRomCurve3([
-        new THREE.Vector3(-2.8, isUpper ? 0.8 : -0.8, -2.4),
-        new THREE.Vector3(-2.5, isUpper ? 0.8 : -0.8, -1.0),
-        new THREE.Vector3(-1.8, isUpper ? 0.8 : -0.8, 0.6),
-        new THREE.Vector3(0, isUpper ? 0.8 : -0.8, 1.6),
-        new THREE.Vector3(1.8, isUpper ? 0.8 : -0.8, 0.6),
-        new THREE.Vector3(2.5, isUpper ? 0.8 : -0.8, -1.0),
-        new THREE.Vector3(2.8, isUpper ? 0.8 : -0.8, -2.4),
-      ]);
+        // Auto center and scale
+        const bbox = new THREE.Box3().setFromObject(model);
+        const center = bbox.getCenter(new THREE.Vector3());
+        const size = bbox.getSize(new THREE.Vector3());
 
-      const gumGeo = new THREE.TubeGeometry(gumCurve, 40, 0.5, 12, false);
-      const gumMat = new THREE.MeshStandardMaterial({
-        color: 0xDC6576, // Gingival pink
-        roughness: 0.35,
-        metalness: 0.05,
-      });
-      const mesh = new THREE.Mesh(gumGeo, gumMat);
-      mesh.receiveShadow = true;
-      return mesh;
-    };
+        model.position.x = -center.x;
+        model.position.y = -center.y;
+        model.position.z = -center.z;
 
-    upperArchGroup.add(createGumMesh(true));
-    lowerArchGroup.add(createGumMesh(false));
+        const maxDim = Math.max(size.x, size.y, size.z);
+        const scaleFactor = 2.8 / maxDim;
+        model.scale.set(scaleFactor, scaleFactor, scaleFactor);
 
-    // Arch definition points (FDI 11-18, 21-28, 31-38, 41-48)
-    const upperTeethOrder = [18, 17, 16, 15, 14, 13, 12, 11, 21, 22, 23, 24, 25, 26, 27, 28];
-    const lowerTeethOrder = [48, 47, 46, 45, 44, 43, 42, 41, 31, 32, 33, 34, 35, 36, 37, 38];
+        const meshesList: ToothMeshMeta[] = [];
 
-    const toothMeshesList: ToothMeshMeta[] = [];
+        model.traverse((child) => {
+          if (child instanceof THREE.Mesh) {
+            child.castShadow = true;
+            child.receiveShadow = true;
 
-    // Helper to calculate parametric arch positions
-    const placeTeethOnArch = (teeth: number[], isUpper: boolean, parentGroup: THREE.Group) => {
-      const count = teeth.length;
-      teeth.forEach((toothNum, idx) => {
-        const t = idx / (count - 1); // 0 to 1
-        const angle = -Math.PI * 0.75 + t * (Math.PI * 1.5); // Curved parabolic distribution
-        
-        // Parabolic arch formula
-        const rx = 2.4;
-        const rz = 2.8;
-        const x = rx * Math.sin(angle);
-        const z = -rz * Math.cos(angle) + 0.8;
-        const y = isUpper ? 0.8 : -0.8;
+            const name = child.name.toLowerCase();
+            const mapped = NODE_TO_FDI[name];
 
-        const info = getToothName(toothNum);
-        const toothGroup = createTooth3D(info.type, isUpper);
-        toothGroup.position.set(x, y, z);
+            if (mapped) {
+              const toothMeta: ToothMeshMeta = {
+                toothNumber: mapped.fdi,
+                nodeName: child.name,
+                name_ar: mapped.ar,
+                name_en: mapped.en,
+                isUpper: mapped.isUpper,
+                mesh: child,
+              };
 
-        // Orient tooth outward
-        toothGroup.rotation.y = angle + Math.PI;
-        // Natural tilt
-        toothGroup.rotation.x = isUpper ? -0.1 : 0.1;
-
-        toothGroup.userData = { toothNumber: toothNum };
-        parentGroup.add(toothGroup);
-
-        toothMeshesList.push({
-          toothNumber: toothNum,
-          name_ar: info.ar,
-          name_en: info.en,
-          isUpper,
-          type: info.type,
-          mesh: toothGroup,
+              child.userData = { toothMeta };
+              meshesList.push(toothMeta);
+            } else if (name.includes('gum')) {
+              // Gingival gum material
+              child.material = new THREE.MeshStandardMaterial({
+                color: 0xDC6576,
+                roughness: 0.35,
+                metalness: 0.05,
+              });
+            } else if (name.includes('maxilla') || name.includes('mandible')) {
+              // Jaw bone material
+              child.material = new THREE.MeshStandardMaterial({
+                color: 0xEAD8C0,
+                roughness: 0.5,
+                metalness: 0.05,
+              });
+            }
+          }
         });
-      });
-    };
 
-    placeTeethOnArch(upperTeethOrder, true, upperArchGroup);
-    placeTeethOnArch(lowerTeethOrder, false, lowerArchGroup);
-    toothMeshesRef.current = toothMeshesList;
+        toothMeshesRef.current = meshesList;
+        scene.add(model);
+        setIsLoading(false);
+      },
+      (xhr) => {
+        if (xhr.total > 0) {
+          setLoadProgress(Math.round((xhr.loaded / xhr.total) * 100));
+        }
+      },
+      (err) => {
+        console.error('Failed to load teeth GLB:', err);
+        setIsLoading(false);
+      }
+    );
 
-    // 6. Raycasting Setup
+    // 7. Raycasting for selecting teeth
     const raycaster = new THREE.Raycaster();
     const mouse = new THREE.Vector2();
 
-    const getIntersectedTooth = (event: MouseEvent) => {
+    const getIntersectedTooth = (e: MouseEvent): ToothMeshMeta | null => {
       const rect = renderer.domElement.getBoundingClientRect();
-      mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-      mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+      mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
 
       raycaster.setFromCamera(mouse, camera);
 
-      // Collect all child meshes from teeth
-      const allMeshes: THREE.Object3D[] = [];
-      toothMeshesList.forEach(t => {
-        t.mesh.traverse(child => {
-          if (child instanceof THREE.Mesh) {
-            child.userData.parentTooth = t;
-            allMeshes.push(child);
-          }
-        });
-      });
+      if (!teethModelRef.current) return null;
+      const intersects = raycaster.intersectObjects(teethModelRef.current.children, true);
 
-      const intersects = raycaster.intersectObjects(allMeshes);
       if (intersects.length > 0) {
-        return (intersects[0].object.userData.parentTooth as ToothMeshMeta) || null;
+        let curr: THREE.Object3D | null = intersects[0].object;
+        while (curr) {
+          if (curr.userData && curr.userData.toothMeta) {
+            return curr.userData.toothMeta as ToothMeshMeta;
+          }
+          curr = curr.parent;
+        }
       }
       return null;
     };
 
-    // Event listeners
-    const handleMouseDown = (e: MouseEvent) => {
-      if (e.button === 0) {
-        isDraggingRef.current = true;
-        prevMouseRef.current = { x: e.clientX, y: e.clientY };
-      }
-    };
-
-    const handleMouseMove = (e: MouseEvent) => {
-      if (isDraggingRef.current) {
-        const deltaX = e.clientX - prevMouseRef.current.x;
-        const deltaY = e.clientY - prevMouseRef.current.y;
-        prevMouseRef.current = { x: e.clientX, y: e.clientY };
-
-        rotationTargetRef.current.y += deltaX * 0.007;
-        rotationTargetRef.current.x += deltaY * 0.007;
-        // Limit vertical pitch
-        rotationTargetRef.current.x = Math.max(-0.8, Math.min(1.2, rotationTargetRef.current.x));
-      } else {
-        const hit = getIntersectedTooth(e);
-        setHoveredTooth(hit);
-        renderer.domElement.style.cursor = hit ? 'pointer' : 'grab';
-      }
-    };
-
-    const handleMouseUp = () => {
-      isDraggingRef.current = false;
+    const handlePointerMove = (e: MouseEvent) => {
+      const hit = getIntersectedTooth(e);
+      setHoveredTooth(hit);
+      renderer.domElement.style.cursor = hit ? 'pointer' : 'grab';
     };
 
     const handleClick = (e: MouseEvent) => {
@@ -384,30 +267,22 @@ export const OdontogramViewer3D: React.FC<OdontogramViewer3DProps> = ({
     };
 
     const dom = renderer.domElement;
-    dom.addEventListener('mousedown', handleMouseDown);
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('mouseup', handleMouseUp);
+    dom.addEventListener('mousemove', handlePointerMove);
     dom.addEventListener('click', handleClick);
 
-    // 7. Animation Loop
+    // 8. Animation Loop
     let animId: number;
     const animate = () => {
       animId = requestAnimationFrame(animate);
-
-      // Smooth camera orbit damping
-      const currentTarget = scene.rotation;
-      currentTarget.y += (rotationTargetRef.current.y - currentTarget.y) * 0.1;
-      currentTarget.x += (rotationTargetRef.current.x - currentTarget.x) * 0.1;
-
+      controls.update();
       renderer.render(scene, camera);
     };
     animate();
 
-    // Resize Handler
     const handleResize = () => {
       if (!container) return;
       const w = container.clientWidth;
-      const h = container.clientHeight || 540;
+      const h = container.clientHeight || 560;
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
       renderer.setSize(w, h);
@@ -416,11 +291,10 @@ export const OdontogramViewer3D: React.FC<OdontogramViewer3DProps> = ({
 
     return () => {
       cancelAnimationFrame(animId);
-      dom.removeEventListener('mousedown', handleMouseDown);
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
+      dom.removeEventListener('mousemove', handlePointerMove);
       dom.removeEventListener('click', handleClick);
       window.removeEventListener('resize', handleResize);
+      controls.dispose();
       renderer.dispose();
       if (container.contains(dom)) {
         container.removeChild(dom);
@@ -432,122 +306,108 @@ export const OdontogramViewer3D: React.FC<OdontogramViewer3DProps> = ({
   useEffect(() => {
     if (!toothMeshesRef.current.length) return;
 
-    toothMeshesRef.current.forEach(tMeta => {
+    toothMeshesRef.current.forEach((tMeta) => {
       const rec = records[tMeta.toothNumber];
       const isHovered = hoveredTooth?.toothNumber === tMeta.toothNumber;
-      const crown = tMeta.mesh.getObjectByName('crown') as THREE.Mesh | undefined;
-      const roots = [
-        tMeta.mesh.getObjectByName('root'),
-        tMeta.mesh.getObjectByName('root1'),
-        tMeta.mesh.getObjectByName('root2'),
-      ].filter(Boolean) as THREE.Mesh[];
 
-      if (!crown) return;
-
-      // Base Materials according to clinical condition
-      let crownColor = 0xFDFBF7;
-      let roughness = 0.25;
+      let color = 0xFAF7EE; // Realistic pearlescent enamel
+      let roughness = 0.22;
       let metalness = 0.05;
       let opacity = 1.0;
       let transparent = false;
       let wireframe = false;
       let emissive = 0x000000;
+      let emissiveIntensity = 0.0;
 
       if (rec) {
         switch (rec.condition) {
           case 'caries':
-            crownColor = 0x881337; // Cavitation maroon/black
+            color = 0x881337; // Deep cavitation maroon
             emissive = 0x4C0519;
+            emissiveIntensity = 0.6;
             break;
           case 'crown':
-            // Gold / Zirconia
-            crownColor = 0xF59E0B; // Amber gold
+            color = 0xF59E0B; // 24K Gold / Ceramic
             metalness = 0.85;
-            roughness = 0.2;
+            roughness = 0.18;
             break;
           case 'amalgam_filling':
-            crownColor = 0x64748B; // Metallic slate silver
+            color = 0x64748B; // Slate metallic silver
             metalness = 0.9;
-            roughness = 0.3;
+            roughness = 0.25;
             break;
           case 'composite_filling':
-            crownColor = 0x38BDF8; // Electric cyan border filling indicator
+            color = 0x38BDF8; // Composite boundary indicator
             emissive = 0x0284C7;
+            emissiveIntensity = 0.4;
             break;
           case 'root_canal':
-            crownColor = 0xA855F7; // Purple endo indicator
+            color = 0xA855F7; // Glowing endodontic purple
             emissive = 0x7E22CE;
+            emissiveIntensity = 0.5;
             break;
           case 'implant':
-            crownColor = 0x94A3B8; // Titanium screw
+            color = 0x94A3B8; // Titanium screw
             metalness = 0.95;
             roughness = 0.15;
             break;
           case 'missing':
           case 'extraction_indicated':
-            crownColor = 0x334155;
+            color = 0x334155;
             transparent = true;
             opacity = 0.15;
             wireframe = true;
             break;
           default:
-            crownColor = 0xFDFBF7;
+            color = 0xFAF7EE;
             break;
         }
       }
 
       if (isHovered) {
-        emissive = 0x22C55E; // Emerald highlight on hover
+        emissive = 0x10B981; // Bright emerald highlight
+        emissiveIntensity = 0.8;
       }
 
-      const mat = new THREE.MeshStandardMaterial({
-        color: crownColor,
+      tMeta.mesh.material = new THREE.MeshStandardMaterial({
+        color,
         roughness,
         metalness,
         opacity,
         transparent,
         wireframe,
         emissive,
-      });
-
-      crown.material = mat;
-
-      // Roots styling (e.g. Implant titanium post)
-      roots.forEach(r => {
-        if (rec?.condition === 'implant') {
-          r.material = new THREE.MeshStandardMaterial({
-            color: 0x64748B,
-            metalness: 0.9,
-            roughness: 0.2,
-          });
-        } else if (rec?.condition === 'missing') {
-          r.material = new THREE.MeshStandardMaterial({
-            color: 0x334155,
-            transparent: true,
-            opacity: 0.15,
-            wireframe: true,
-          });
-        } else {
-          r.material = new THREE.MeshStandardMaterial({
-            color: 0xEAD8C0,
-            roughness: 0.4,
-          });
-        }
+        emissiveIntensity,
       });
     });
   }, [records, hoveredTooth]);
 
-  // Handle Visibility according to arch filter
+  // Handle Arch Filter (Upper vs Lower vs Both)
   useEffect(() => {
-    if (upperArchGroupRef.current) {
-      upperArchGroupRef.current.visible = archFilter === 'both' || archFilter === 'upper';
-    }
-    if (lowerArchGroupRef.current) {
-      lowerArchGroupRef.current.visible = archFilter === 'both' || archFilter === 'lower';
-    }
+    if (!toothMeshesRef.current.length || !teethModelRef.current) return;
+
+    toothMeshesRef.current.forEach((tMeta) => {
+      if (archFilter === 'both') {
+        tMeta.mesh.visible = true;
+      } else if (archFilter === 'upper') {
+        tMeta.mesh.visible = tMeta.isUpper;
+      } else if (archFilter === 'lower') {
+        tMeta.mesh.visible = !tMeta.isUpper;
+      }
+    });
+
+    // Also toggle gums
+    teethModelRef.current.traverse((child) => {
+      const n = child.name.toLowerCase();
+      if (n.includes('upper-gum') || n.includes('maxilla')) {
+        child.visible = archFilter === 'both' || archFilter === 'upper';
+      }
+      if (n.includes('lower-gum') || n.includes('mandible')) {
+        child.visible = archFilter === 'both' || archFilter === 'lower';
+      }
+    });
   }, [archFilter]);
 
-  // Open Edit Modal
   const openToothModal = (toothMeta: ToothMeshMeta) => {
     setActiveModalTooth(toothMeta);
     const existing = records[toothMeta.toothNumber];
@@ -561,7 +421,7 @@ export const OdontogramViewer3D: React.FC<OdontogramViewer3DProps> = ({
       setCondition('caries');
       setSurfaces(['O']);
       setNotes('');
-      setCost(350);
+      setCost(400);
       setCompleted(false);
     }
   };
@@ -594,31 +454,29 @@ export const OdontogramViewer3D: React.FC<OdontogramViewer3DProps> = ({
     setActiveModalTooth(null);
   };
 
-  // Camera presets
-  const setCameraPreset = (preset: CameraView) => {
-    if (!cameraRef.current || !sceneRef.current) return;
+  const setCameraPreset = (preset: 'front' | 'upper_occ' | 'lower_occ') => {
+    if (!cameraRef.current || !controlsRef.current) return;
     const cam = cameraRef.current;
-    if (preset === 'perspective') {
-      rotationTargetRef.current = { x: 0.35, y: 0 };
-      cam.position.set(0, 3.5, 9.5);
-    } else if (preset === 'frontal') {
-      rotationTargetRef.current = { x: 0.0, y: 0 };
-      cam.position.set(0, 0, 8.5);
-    } else if (preset === 'occlusal_upper') {
+    const ctrl = controlsRef.current;
+
+    if (preset === 'front') {
+      cam.position.set(0, 0.4, 4.2);
+      ctrl.target.set(0, 0, 0);
+    } else if (preset === 'upper_occ') {
       setArchFilter('upper');
-      rotationTargetRef.current = { x: Math.PI / 2.2, y: 0 };
-      cam.position.set(0, 7.5, 1.5);
-    } else if (preset === 'occlusal_lower') {
+      cam.position.set(0, 3.8, 0.5);
+      ctrl.target.set(0, 0, 0);
+    } else if (preset === 'lower_occ') {
       setArchFilter('lower');
-      rotationTargetRef.current = { x: -Math.PI / 2.2, y: 0 };
-      cam.position.set(0, -7.5, 1.5);
+      cam.position.set(0, -3.8, 0.5);
+      ctrl.target.set(0, 0, 0);
     }
-    cam.lookAt(0, 0, 0);
+    ctrl.update();
   };
 
   const toggleSurface = (surf: ToothSurface) => {
     if (surfaces.includes(surf)) {
-      setSurfaces(surfaces.filter(s => s !== surf));
+      setSurfaces(surfaces.filter((s) => s !== surf));
     } else {
       setSurfaces([...surfaces, surf]);
     }
@@ -635,16 +493,16 @@ export const OdontogramViewer3D: React.FC<OdontogramViewer3DProps> = ({
           <div>
             <div className="flex items-center gap-2">
               <h3 className="font-black text-sm sm:text-base text-white tracking-wide">
-                {locale === 'ar' ? 'المخطط السني ثلاثي الأبعاد 3D WebGL (FDI Arch)' : '3D WebGL Dental Odontogram (FDI Arch)'}
+                {locale === 'ar' ? 'المخطط السني ثلاثي الأبعاد 3D WebGL (أقواس الفكين والأسنان التشريحية)' : '3D WebGL Dental Engine (Anatomical Arches & Teeth)'}
               </h3>
               <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
-                True 3D Interactive
+                Medical-Grade 3D
               </span>
             </div>
             <p className="text-xs text-slate-400 mt-0.5">
               {locale === 'ar' 
-                ? 'استكشاف تشريحي كامل للفكين، تدوير 360°، تحديد حالات الأسنان، التركيبات، الجذور والغرسات' 
-                : '360° dental arch orbit, raycast tooth inspection, roots, crowns, endo & implants'}
+                ? 'أسنان تشريحية مجسمة كاملة مع اللثة وعظام الفكين، تدوير 360°، طرابيش زيركون، علاج جذور وغرسات' 
+                : 'Authentic 3D sculpted teeth with gingiva & jaw bones, 360° orbit, crowns, endo & implants'}
             </p>
           </div>
         </div>
@@ -686,44 +544,32 @@ export const OdontogramViewer3D: React.FC<OdontogramViewer3DProps> = ({
           <div className="flex items-center bg-slate-800/80 border border-slate-700 rounded-xl p-1 text-xs">
             <button
               type="button"
-              onClick={() => setCameraPreset('perspective')}
-              title={locale === 'ar' ? 'منظور مائل' : 'Perspective Angle'}
-              className="px-2 py-1 rounded-lg font-semibold text-slate-300 hover:text-white hover:bg-slate-700"
+              onClick={() => setCameraPreset('front')}
+              className="px-2.5 py-1 rounded-lg font-semibold text-slate-300 hover:text-white hover:bg-slate-700"
             >
-              <Camera className="w-3.5 h-3.5 inline mr-1" />
-              {locale === 'ar' ? 'مائل' : '3D'}
+              {locale === 'ar' ? 'أمامي (الابتسامة)' : 'Front Smile'}
             </button>
             <button
               type="button"
-              onClick={() => setCameraPreset('frontal')}
-              title={locale === 'ar' ? 'منظر أمامي (الابتسامة)' : 'Frontal Smile'}
-              className="px-2 py-1 rounded-lg font-semibold text-slate-300 hover:text-white hover:bg-slate-700"
+              onClick={() => setCameraPreset('upper_occ')}
+              className="px-2.5 py-1 rounded-lg font-semibold text-slate-300 hover:text-white hover:bg-slate-700"
             >
-              {locale === 'ar' ? 'أمامي' : 'Front'}
+              {locale === 'ar' ? 'أطباقي علوي' : 'Upper Occ'}
             </button>
             <button
               type="button"
-              onClick={() => setCameraPreset('occlusal_upper')}
-              title={locale === 'ar' ? 'أطباقي علوي' : 'Upper Occlusal'}
-              className="px-2 py-1 rounded-lg font-semibold text-slate-300 hover:text-white hover:bg-slate-700"
+              onClick={() => setCameraPreset('lower_occ')}
+              className="px-2.5 py-1 rounded-lg font-semibold text-slate-300 hover:text-white hover:bg-slate-700"
             >
-              {locale === 'ar' ? 'أطباقي علوي' : 'Occ Upper'}
-            </button>
-            <button
-              type="button"
-              onClick={() => setCameraPreset('occlusal_lower')}
-              title={locale === 'ar' ? 'أطباقي سفلي' : 'Lower Occlusal'}
-              className="px-2 py-1 rounded-lg font-semibold text-slate-300 hover:text-white hover:bg-slate-700"
-            >
-              {locale === 'ar' ? 'أطباقي سفلي' : 'Occ Lower'}
+              {locale === 'ar' ? 'أطباقي سفلي' : 'Lower Occ'}
             </button>
           </div>
 
           {/* Reset Orbit */}
           <button
             type="button"
-            onClick={() => setCameraPreset('perspective')}
-            title={locale === 'ar' ? 'إعادة ضبط المنظر' : 'Reset Orbit'}
+            onClick={() => setCameraPreset('front')}
+            title={locale === 'ar' ? 'إعادة ضبط المنظر' : 'Reset View'}
             className="p-2 bg-slate-800 border border-slate-700 rounded-xl text-slate-300 hover:text-white hover:bg-slate-700"
           >
             <RotateCcw className="w-4 h-4" />
@@ -732,20 +578,35 @@ export const OdontogramViewer3D: React.FC<OdontogramViewer3DProps> = ({
       </div>
 
       {/* Main 3D Canvas Mount */}
-      <div className="relative w-full h-[540px] bg-gradient-to-b from-[#090D16] to-[#040711] overflow-hidden select-none">
+      <div className="relative w-full h-[560px] bg-gradient-to-b from-[#080C16] to-[#03060E] overflow-hidden select-none">
         <div ref={mountRef} className="w-full h-full cursor-grab active:cursor-grabbing" />
 
-        {/* Hover Tooth Dynamic HUD / Tooltip */}
+        {/* Loading Overlay */}
+        {isLoading && (
+          <div className="absolute inset-0 z-20 bg-slate-950/80 backdrop-blur-md flex flex-col items-center justify-center gap-3">
+            <Loader2 className="w-10 h-10 text-cyan-400 animate-spin" />
+            <div className="text-center">
+              <h4 className="font-bold text-white text-sm">
+                {locale === 'ar' ? 'جاري تحميل نموذج الأسنان والفكين التشريحي 3D...' : 'Loading Anatomical Dental 3D Model...'}
+              </h4>
+              <p className="text-xs text-slate-400 mt-1">
+                {loadProgress > 0 ? `${loadProgress}%` : locale === 'ar' ? 'يرجى الانتظار ثوانٍ معدودة' : 'Preparing WebGL dental arches...'}
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Hover Tooth Dynamic HUD */}
         {hoveredTooth && (
-          <div className="absolute top-4 left-4 z-10 bg-slate-900/90 border border-cyan-500/40 rounded-xl px-3.5 py-2 backdrop-blur-md shadow-2xl flex items-center gap-3 animate-fade-in pointer-events-none">
-            <div className="w-8 h-8 rounded-lg bg-cyan-500/20 border border-cyan-400/30 flex items-center justify-center font-black text-cyan-300 text-sm">
+          <div className="absolute top-4 left-4 z-10 bg-slate-900/90 border border-cyan-500/40 rounded-xl px-4 py-2.5 backdrop-blur-md shadow-2xl flex items-center gap-3 animate-fade-in pointer-events-none">
+            <div className="w-9 h-9 rounded-lg bg-cyan-500/20 border border-cyan-400/30 flex items-center justify-center font-black text-cyan-300 text-sm">
               {hoveredTooth.toothNumber}
             </div>
             <div>
-              <div className="font-bold text-xs text-white">
+              <div className="font-bold text-sm text-white">
                 {locale === 'ar' ? hoveredTooth.name_ar : hoveredTooth.name_en}
               </div>
-              <div className="text-[10px] text-cyan-400 font-medium">
+              <div className="text-[11px] text-cyan-400 font-medium">
                 {records[hoveredTooth.toothNumber] ? (
                   <span className="text-amber-400 font-bold">
                     {records[hoveredTooth.toothNumber].condition.toUpperCase()} 
@@ -759,10 +620,10 @@ export const OdontogramViewer3D: React.FC<OdontogramViewer3DProps> = ({
           </div>
         )}
 
-        {/* Orbit Helper Watermark */}
-        <div className="absolute bottom-3 right-4 z-10 pointer-events-none flex items-center gap-2 text-[11px] text-slate-500 bg-slate-950/60 px-3 py-1.5 rounded-lg border border-slate-800">
-          <RotateCcw className="w-3.5 h-3.5 text-slate-400 animate-spin-slow" />
-          <span>{locale === 'ar' ? 'اسحب الماوس للتدوير 360° | اضغط على أي سن للتشخيص' : 'Drag to orbit 360° | Click tooth to diagnose'}</span>
+        {/* Orbit Helper Indicator */}
+        <div className="absolute bottom-3 right-4 z-10 pointer-events-none flex items-center gap-2 text-[11px] text-slate-400 bg-slate-950/70 px-3 py-1.5 rounded-lg border border-slate-800">
+          <RotateCcw className="w-3.5 h-3.5 text-cyan-400 animate-spin-slow" />
+          <span>{locale === 'ar' ? 'اسحب بالماوس للتدوير 360° | عجلات الماوس للتكبير | اضغط على أي سن للتشخيص' : 'Drag to orbit 360° | Scroll to zoom | Click tooth to diagnose'}</span>
         </div>
 
         {/* Clinical Condition Legend */}
@@ -775,7 +636,7 @@ export const OdontogramViewer3D: React.FC<OdontogramViewer3DProps> = ({
         </div>
       </div>
 
-      {/* Clinical Finding Modal (Raycast Selection) */}
+      {/* Clinical Finding Modal */}
       {activeModalTooth && (
         <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-lg w-full p-6 shadow-2xl text-slate-100 animate-scale-up">
@@ -810,7 +671,7 @@ export const OdontogramViewer3D: React.FC<OdontogramViewer3DProps> = ({
                 </label>
                 <select
                   value={condition}
-                  onChange={e => setCondition(e.target.value as DentalCondition)}
+                  onChange={(e) => setCondition(e.target.value as DentalCondition)}
                   className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-cyan-500"
                 >
                   <option value="sound">{locale === 'ar' ? 'سليم وطبيعي (Sound)' : 'Sound / Healthy'}</option>
@@ -838,7 +699,7 @@ export const OdontogramViewer3D: React.FC<OdontogramViewer3DProps> = ({
                     { code: 'D' as ToothSurface, label_ar: 'وحشي (D)', label_en: 'Distal' },
                     { code: 'B' as ToothSurface, label_ar: 'دهليزي (B)', label_en: 'Buccal' },
                     { code: 'L' as ToothSurface, label_ar: 'لساني (L)', label_en: 'Lingual' },
-                  ].map(surf => (
+                  ].map((surf) => (
                     <button
                       key={surf.code}
                       type="button"
@@ -868,7 +729,7 @@ export const OdontogramViewer3D: React.FC<OdontogramViewer3DProps> = ({
                       min={0}
                       step={50}
                       value={cost}
-                      onChange={e => setCost(Number(e.target.value))}
+                      onChange={(e) => setCost(Number(e.target.value))}
                       className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-cyan-500 pl-8"
                     />
                     <DollarSign className="w-4 h-4 text-slate-400 absolute left-2.5 top-2.5" />
@@ -880,7 +741,7 @@ export const OdontogramViewer3D: React.FC<OdontogramViewer3DProps> = ({
                     <input
                       type="checkbox"
                       checked={completed}
-                      onChange={e => setCompleted(e.target.checked)}
+                      onChange={(e) => setCompleted(e.target.checked)}
                       className="rounded text-cyan-600 focus:ring-cyan-500 w-4 h-4"
                     />
                     <span className="text-xs font-bold text-slate-200">
@@ -898,7 +759,7 @@ export const OdontogramViewer3D: React.FC<OdontogramViewer3DProps> = ({
                 <textarea
                   rows={2}
                   value={notes}
-                  onChange={e => setNotes(e.target.value)}
+                  onChange={(e) => setNotes(e.target.value)}
                   placeholder={locale === 'ar' ? 'مثال: تم برد السن وأخذ مقاس للتاج الزيركونيوم...' : 'e.g. Tooth prepped, shade A2 recorded...'}
                   className="w-full bg-slate-800 border border-slate-700 rounded-xl p-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500"
                 />
