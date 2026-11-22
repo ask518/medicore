@@ -183,7 +183,7 @@ npm install
 ```bash
 npm run dev
 ```
-سيفتح التطبيق فوراً على المنفذ `http://localhost:3000` بكامل وظائفه.
+سيفتح التطبيق فوراً على المنفذ `http://localhost:5180` بكامل وظائفه.
 
 ### 3. بناء نسخة الإنتاج (Production Build):
 ```bash
