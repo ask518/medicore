@@ -1,0 +1,17 @@
+{
+  "short_name": "MEDICORE",
+  "name": "MEDICORE Healthcare Management SaaS",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "type": "image/svg+xml",
+      "sizes": "192x192 512x512"
+    }
+  ],
+  "start_url": "/",
+  "background_color": "#ffffff",
+  "theme_color": "#0c87eb",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "categories": ["medical", "health", "productivity", "business"]
+}
