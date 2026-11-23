@@ -16,6 +16,17 @@ import { DermatomeMap } from '../../components/anatomy/DermatomeMap';
 import { DermatomeMap3D } from '../../components/anatomy/DermatomeMap3D';
 import { OphthalmologyViewer } from '../../components/anatomy/OphthalmologyViewer';
 import { OrthopedicFinding, ToothRecord, DermaFinding, EyeExaminationData } from '../../types/specialty';
+import { CardiologyModule, CardiologyData } from '../../components/anatomy/CardiologyModule';
+import { GastroenterologyModule, GastroenterologyData } from '../../components/anatomy/GastroenterologyModule';
+import { PediatricsModule, PediatricsData } from '../../components/anatomy/PediatricsModule';
+import { GynecologyModule, GynecologyData } from '../../components/anatomy/GynecologyModule';
+import { NeurologyModule, NeurologyData } from '../../components/anatomy/NeurologyModule';
+import { PulmonologyModule, PulmonologyData } from '../../components/anatomy/PulmonologyModule';
+import { EntModule, EntData } from '../../components/anatomy/EntModule';
+import { UrologyModule, UrologyData } from '../../components/anatomy/UrologyModule';
+import { PsychiatryModule, PsychiatryData } from '../../components/anatomy/PsychiatryModule';
+import { GeneralClinicalTemplate, GeneralClinicalData } from '../../components/anatomy/GeneralClinicalTemplate';
+import { resolveClinicalModule, getSpecialtyByCode, ClinicalModuleType } from '../../config/medicalSpecialties';
 import { COMMON_ICD10_DIAGNOSES } from '../../config/appConfig';
 import { 
   Stethoscope, User, Heart, Activity, FileText, CheckCircle2, 
@@ -41,9 +52,18 @@ export const Consultation: React.FC = () => {
   const [selectedPatientId, setSelectedPatientId] = useState<string>(patients[0]?.id || '');
   const [selectedDoctorId, setSelectedDoctorId] = useState<string>(doctors[0]?.id || '');
 
-  // Active specialty tab (e.g. 'orthopedics', 'dentistry', 'dermatology', 'ophthalmology')
+  // Active specialty tab (e.g. 'orthopedics', 'dentistry', 'dermatology', 'ophthalmology', 'cardiology', etc.)
   const currentDoctor = doctors.find(d => d.id === selectedDoctorId);
   const specialtyCode = currentDoctor?.specialty_code || 'orthopedics';
+  const specialtyInfo = getSpecialtyByCode(specialtyCode);
+  const autoModule = resolveClinicalModule(specialtyCode);
+
+  // Clinical Suite active module with manual switcher option
+  const [activeClinicalModule, setActiveClinicalModule] = useState<ClinicalModuleType>(autoModule);
+
+  useEffect(() => {
+    setActiveClinicalModule(autoModule);
+  }, [specialtyCode, autoModule]);
 
   // Vitals State
   const [systolic, setSystolic] = useState<number>(120);
@@ -72,6 +92,170 @@ export const Consultation: React.FC = () => {
   const [eyeData, setEyeData] = useState<EyeExaminationData>({
     rightEye: { visualAcuityUncorrected: '6/6', visualAcuityCorrected: '6/6', intraocularPressureMmHg: 15, anteriorSegmentNotes: '', corneaStatus: 'Clear', lensStatus: 'Clear', fundusRetinaNotes: '', cupToDiscRatio: 0.3 },
     leftEye: { visualAcuityUncorrected: '6/6', visualAcuityCorrected: '6/6', intraocularPressureMmHg: 15, anteriorSegmentNotes: '', corneaStatus: 'Clear', lensStatus: 'Clear', fundusRetinaNotes: '', cupToDiscRatio: 0.3 }
+  });
+
+  // Additional Specialty Modules State
+  const [cardioData, setCardioData] = useState<CardiologyData>({
+    systolicBp: 120,
+    diastolicBp: 80,
+    heartRate: 75,
+    rhythm: 'sinus_regular',
+    heartSounds: 'normal_s1_s2',
+    murmurGrade: 'none',
+    murmurTiming: 'none',
+    edemaGrade: 'none',
+    jvpStatus: 'normal',
+    nyhaClass: 'I',
+    ejectionFraction: 60,
+    ecgSummary: '',
+    echoFindings: '',
+    cardiacNotes: '',
+  });
+
+  const [gastroData, setGastroData] = useState<GastroenterologyData>({
+    painQuadrants: [],
+    tenderness: false,
+    reboundTenderness: false,
+    guarding: false,
+    murphySign: false,
+    hepatomegaly: false,
+    splenomegaly: false,
+    ascites: false,
+    bristolScale: 4,
+    bowelSounds: 'normal',
+    endoscopyReport: '',
+    notes: '',
+  });
+
+  const [pediaData, setPediaData] = useState<PediatricsData>({
+    ageMonths: 24,
+    weightKg: 12.5,
+    heightCm: 86,
+    headCircumferenceCm: 48,
+    weightPercentile: '50th',
+    heightPercentile: '50th',
+    headPercentile: '50th',
+    grossMotorMilestone: 'Runs well, kicks ball',
+    fineMotorMilestone: 'Builds tower of 6 cubes',
+    languageMilestone: '2-word phrases',
+    socialMilestone: 'Parallel play',
+    completedVaccines: ['bcg', 'hepb_birth', 'dpt_1', 'opv_1'],
+    feedingType: 'family_food',
+    pediatricNotes: '',
+  });
+
+  const [gynData, setGynData] = useState<GynecologyData>({
+    gravida: 1,
+    para: 0,
+    abortions: 0,
+    living: 0,
+    lmpDate: '',
+    isPregnant: false,
+    fundalHeightCm: 0,
+    fetalPresentation: 'Cephalic',
+    fetalHeartRateBpm: 140,
+    amnioticFluidIndex: 12,
+    placentaLocation: 'Anterior High',
+    ultrasoundNotes: '',
+    papSmearStatus: 'Normal / Not indicated',
+  });
+
+  const [neuroData, setNeuroData] = useState<NeurologyData>({
+    gcsEye: 4,
+    gcsVerbal: 5,
+    gcsMotor: 6,
+    cranialNervesStatus: 'intact',
+    cranialNervesNotes: '',
+    motorPowerUpperRight: 5,
+    motorPowerUpperLeft: 5,
+    motorPowerLowerRight: 5,
+    motorPowerLowerLeft: 5,
+    muscleTone: 'normal',
+    sensoryExam: 'intact',
+    sensoryNotes: '',
+    reflexBiceps: '2+',
+    reflexPatellar: '2+',
+    babinskiSign: 'negative',
+    cerebellarCoordination: 'intact',
+    gaitType: 'normal',
+    neuroNotes: '',
+  });
+
+  const [pulmoData, setPulmoData] = useState<PulmonologyData>({
+    spO2: 98,
+    o2Therapy: 'room_air',
+    respiratoryRate: 16,
+    mmrcScore: 0,
+    chestExpansion: 'symmetric',
+    breathSounds: 'vesicular_normal',
+    adventitiousSounds: 'none',
+    percussionNote: 'resonant_normal',
+    coughType: 'none',
+    imagingFindings: '',
+    pulmoNotes: '',
+  });
+
+  const [entData, setEntData] = useState<EntData>({
+    rightEarTm: 'intact_normal',
+    leftEarTm: 'intact_normal',
+    weberTest: 'central_normal',
+    rinneRight: 'positive_normal',
+    rinneLeft: 'positive_normal',
+    nasalSeptum: 'midline_straight',
+    nasalTurbinates: 'normal',
+    tonsilGrade: 1,
+    tonsilExudate: 'none',
+    pharynxWall: 'normal',
+    neckLymphNodes: 'non_palpable',
+    entNotes: '',
+  });
+
+  const [uroData, setUroData] = useState<UrologyData>({
+    dysuria: false,
+    frequency: false,
+    urgency: false,
+    nocturiaCount: 0,
+    streamQuality: 'normal',
+    hematuria: 'none',
+    ipssScore: 0,
+    ipssQolScore: 1,
+    prostateSize: 'normal_grade1',
+    prostateConsistency: 'smooth_elastic',
+    costovertebralTenderness: 'none',
+    scrotalExam: 'normal',
+    catheterStatus: 'none',
+    uroNotes: '',
+  });
+
+  const [psychData, setPsychData] = useState<PsychiatryData>({
+    appearanceBehavior: 'well_groomed',
+    speechCharacteristics: 'normal_rate_tone',
+    moodSubjective: 'euthymic',
+    affectObjective: 'congruent_full',
+    thoughtProcess: 'linear_goal_directed',
+    thoughtContent: 'normal',
+    perceptualDisturbances: 'none',
+    insightJudgment: 'intact_good',
+    phq9Score: 0,
+    gad7Score: 0,
+    suicideRisk: 'none_low',
+    psychNotes: '',
+  });
+
+  const [generalData, setGeneralData] = useState<GeneralClinicalData>({
+    primaryComplaint: '',
+    durationOnset: '',
+    hpiNarrative: '',
+    pallor: false,
+    jaundice: false,
+    cyanosis: false,
+    clubbing: false,
+    lymphadenopathy: false,
+    pedalEdema: false,
+    systemicExamNotes: '',
+    differentialDiagnosis: '',
+    clinicalPlan: '',
+    followUpDays: 7,
   });
 
   // e-Prescription Items
@@ -135,6 +319,17 @@ export const Consultation: React.FC = () => {
         dentalRecords,
         dermaFindings,
         eyeData,
+        cardioData,
+        gastroData,
+        pediaData,
+        gynData,
+        neuroData,
+        pulmoData,
+        entData,
+        uroData,
+        psychData,
+        generalData,
+        activeClinicalModule,
       },
       signed_by: user?.id,
       signed_at: new Date().toISOString(),
@@ -361,16 +556,43 @@ export const Consultation: React.FC = () => {
                 {t.consultation.specialtyExamination}
               </h3>
               <p className="text-xs text-slate-500 mt-0.5">
-                {specialtyCode === 'orthopedics' && (locale === 'ar' ? 'الهيكل العظمي التفاعلي لجراحة العظام (3D WebGL / 2D)' : 'Orthopedic Skeleton')}
-                {specialtyCode === 'dentistry' && (locale === 'ar' ? 'مخطط الأسنان التفاعلي FDI (3D WebGL / 2D)' : 'FDI Dental Odontogram')}
-                {specialtyCode === 'dermatology' && (locale === 'ar' ? 'مجسم الجلد والجسم السريري (3D WebGL / 2D)' : 'Dermatology Body Map')}
-                {specialtyCode === 'ophthalmology' && (locale === 'ar' ? 'فحص مقاييس وقاع العين' : 'Ophthalmology Examination')}
+                {specialtyInfo ? (locale === 'ar' ? specialtyInfo.name_ar : specialtyInfo.name_en) : specialtyCode}
+                {specialtyInfo?.category_name_ar && (
+                  <span className="text-slate-400"> • {locale === 'ar' ? specialtyInfo.category_name_ar : specialtyInfo.category_name_en}</span>
+                )}
               </p>
             </div>
             
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Quick Clinical Suite Switcher */}
+              <div className="flex items-center gap-1.5">
+                <span className="text-[11px] font-bold text-slate-500">
+                  {locale === 'ar' ? 'أداة الفحص:' : 'Suite:'}
+                </span>
+                <select
+                  value={activeClinicalModule}
+                  onChange={e => setActiveClinicalModule(e.target.value as ClinicalModuleType)}
+                  className="text-xs font-bold p-1.5 rounded-lg border border-slate-200 bg-slate-50 text-slate-800"
+                >
+                  <option value="orthopedics">{locale === 'ar' ? 'جراحة العظام (Orthopedics 3D/2D)' : 'Orthopedics (3D/2D)'}</option>
+                  <option value="dentistry">{locale === 'ar' ? 'طب الأسنان (Dentistry FDI 3D/2D)' : 'Dentistry FDI (3D/2D)'}</option>
+                  <option value="dermatology">{locale === 'ar' ? 'الجلدية والجسم (Dermatology 3D/2D)' : 'Dermatology (3D/2D)'}</option>
+                  <option value="ophthalmology">{locale === 'ar' ? 'طب العيون (Ophthalmology)' : 'Ophthalmology'}</option>
+                  <option value="cardiology">{locale === 'ar' ? 'أمراض القلب (Cardiology)' : 'Cardiology'}</option>
+                  <option value="gastroenterology">{locale === 'ar' ? 'الجهاز الهضمي (Gastroenterology)' : 'Gastroenterology'}</option>
+                  <option value="pediatrics">{locale === 'ar' ? 'طب الأطفال (Pediatrics & Growth)' : 'Pediatrics'}</option>
+                  <option value="gynecology_obstetrics">{locale === 'ar' ? 'النساء والتوليد (OB/GYN)' : 'Gynecology & OB'}</option>
+                  <option value="neurology">{locale === 'ar' ? 'المخ والأعصاب (Neurology GCS/MRC)' : 'Neurology'}</option>
+                  <option value="pulmonology">{locale === 'ar' ? 'الصدرية والرئة (Pulmonology PFT)' : 'Pulmonology'}</option>
+                  <option value="ent">{locale === 'ar' ? 'الأنف والأذن والحنجرة (ENT)' : 'ENT'}</option>
+                  <option value="urology">{locale === 'ar' ? 'المسالك البولية (Urology IPSS/DRE)' : 'Urology'}</option>
+                  <option value="psychiatry">{locale === 'ar' ? 'الطب النفسي (Psychiatry MSE/PHQ-9)' : 'Psychiatry'}</option>
+                  <option value="general_template">{locale === 'ar' ? 'الطب العام والباطني (General Clinical)' : 'General Clinical'}</option>
+                </select>
+              </div>
+
               {/* 3D vs 2D Mode Switcher */}
-              {specialtyCode !== 'ophthalmology' && (
+              {['orthopedics', 'dentistry', 'dermatology'].includes(activeClinicalModule) && (
                 <div className="flex items-center gap-1 p-0.5 bg-slate-100 border border-slate-200 rounded-xl text-xs">
                   <button
                     type="button"
@@ -394,15 +616,11 @@ export const Consultation: React.FC = () => {
                   </button>
                 </div>
               )}
-
-              <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-medicore-100 text-medicore-800 uppercase">
-                {specialtyCode}
-              </span>
             </div>
           </div>
 
-          {/* Dynamic Interactive Visualizer Component based on doctor specialty */}
-          {specialtyCode === 'orthopedics' && (
+          {/* Dynamic Interactive Visualizer Component based on active clinical module */}
+          {activeClinicalModule === 'orthopedics' && (
             engineMode === '3d' ? (
               <SkeletonViewer3D findings={orthoFindings} onChange={setOrthoFindings} readOnly={isSigned} />
             ) : (
@@ -410,7 +628,7 @@ export const Consultation: React.FC = () => {
             )
           )}
 
-          {specialtyCode === 'dentistry' && (
+          {activeClinicalModule === 'dentistry' && (
             engineMode === '3d' ? (
               <OdontogramViewer3D records={dentalRecords} onChange={setDentalRecords} readOnly={isSigned} />
             ) : (
@@ -418,7 +636,7 @@ export const Consultation: React.FC = () => {
             )
           )}
 
-          {specialtyCode === 'dermatology' && (
+          {activeClinicalModule === 'dermatology' && (
             engineMode === '3d' ? (
               <DermatomeMap3D findings={dermaFindings} onChange={setDermaFindings} readOnly={isSigned} />
             ) : (
@@ -426,8 +644,53 @@ export const Consultation: React.FC = () => {
             )
           )}
 
-          {specialtyCode === 'ophthalmology' && (
+          {activeClinicalModule === 'ophthalmology' && (
             <OphthalmologyViewer data={eyeData} onChange={setEyeData} readOnly={isSigned} />
+          )}
+
+          {activeClinicalModule === 'cardiology' && (
+            <CardiologyModule data={cardioData} onChange={setCardioData} readOnly={isSigned} />
+          )}
+
+          {activeClinicalModule === 'gastroenterology' && (
+            <GastroenterologyModule data={gastroData} onChange={setGastroData} readOnly={isSigned} />
+          )}
+
+          {activeClinicalModule === 'pediatrics' && (
+            <PediatricsModule data={pediaData} onChange={setPediaData} readOnly={isSigned} />
+          )}
+
+          {activeClinicalModule === 'gynecology_obstetrics' && (
+            <GynecologyModule data={gynData} onChange={setGynData} readOnly={isSigned} />
+          )}
+
+          {activeClinicalModule === 'neurology' && (
+            <NeurologyModule data={neuroData} onChange={setNeuroData} readOnly={isSigned} />
+          )}
+
+          {activeClinicalModule === 'pulmonology' && (
+            <PulmonologyModule data={pulmoData} onChange={setPulmoData} readOnly={isSigned} />
+          )}
+
+          {activeClinicalModule === 'ent' && (
+            <EntModule data={entData} onChange={setEntData} readOnly={isSigned} />
+          )}
+
+          {activeClinicalModule === 'urology' && (
+            <UrologyModule data={uroData} onChange={setUroData} readOnly={isSigned} />
+          )}
+
+          {activeClinicalModule === 'psychiatry' && (
+            <PsychiatryModule data={psychData} onChange={setPsychData} readOnly={isSigned} />
+          )}
+
+          {activeClinicalModule === 'general_template' && (
+            <GeneralClinicalTemplate 
+              specialtyTitle={specialtyInfo ? (locale === 'ar' ? specialtyInfo.name_ar : specialtyInfo.name_en) : undefined} 
+              data={generalData} 
+              onChange={setGeneralData} 
+              readOnly={isSigned} 
+            />
           )}
         </div>
 

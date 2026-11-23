@@ -63,6 +63,7 @@ export interface Organization {
   is_enterprise_dedicated: boolean;
   dedicated_db_connection?: string;
   storage_consumed_mb: number;
+  specialties?: string[];
   created_at: string;
   updated_at: string;
 }
@@ -117,6 +118,7 @@ export interface Branch {
   city: string;
   is_main_branch: boolean;
   is_active: boolean;
+  specialties?: string[];
   working_hours_json?: Record<string, { open?: string; close?: string; closed?: boolean }>;
   created_at: string;
   updated_at: string;
@@ -145,9 +147,13 @@ export interface ExaminationRoom {
 
 export type AppRole = 
   | 'super_admin'
+  | 'platform_admin'
+  | 'platform_support'
+  | 'billing_admin'
   | 'org_owner'
   | 'general_manager'
   | 'branch_manager'
+  | 'medical_director'
   | 'doctor'
   | 'assistant_doctor'
   | 'nurse'
@@ -157,6 +163,7 @@ export type AppRole =
   | 'radiology_technician'
   | 'pharmacist'
   | 'insurance_officer'
+  | 'inventory_manager'
   | 'records_officer'
   | 'patient';
 
@@ -185,6 +192,11 @@ export interface Doctor {
   specialty_code: string;
   specialty_title_ar: string;
   specialty_title_en: string;
+  subspecialty_code?: string;
+  subspecialty_title_ar?: string;
+  subspecialty_title_en?: string;
+  professional_title?: string;
+  qualifications?: string;
   bio_ar?: string;
   bio_en?: string;
   commission_type: 'percentage' | 'fixed' | 'salary';

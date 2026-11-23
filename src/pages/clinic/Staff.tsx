@@ -9,7 +9,7 @@ import { useLanguage } from '../../context/LanguageContext';
 import { useToast } from '../../context/ToastContext';
 import { dbClient } from '../../lib/dbClient';
 import { AppRole, User } from '../../types/database';
-import { MEDICAL_SPECIALTIES } from '../../config/appConfig';
+import { MASTER_MEDICAL_SPECIALTIES, getSpecialtyByCode } from '../../config/medicalSpecialties';
 import { UserCog, Plus, Shield, Mail, Phone, CheckCircle2, X, Stethoscope, DollarSign, Award } from 'lucide-react';
 
 export const Staff: React.FC = () => {
@@ -29,6 +29,15 @@ export const Staff: React.FC = () => {
   const [followUpFee, setFollowUpFee] = useState(150);
   const [commissionRate, setCommissionRate] = useState(20);
 
+  // Filter available doctor specialties by the organization's activated specialties
+  const availableSpecialties = React.useMemo(() => {
+    if (organization?.specialties && organization.specialties.length > 0) {
+      const filtered = MASTER_MEDICAL_SPECIALTIES.filter(s => organization.specialties!.includes(s.code));
+      if (filtered.length > 0) return filtered;
+    }
+    return MASTER_MEDICAL_SPECIALTIES.filter(s => s.is_active);
+  }, [organization?.specialties]);
+
   if (!organization) return null;
   const orgId = organization.id;
 
@@ -42,7 +51,7 @@ export const Staff: React.FC = () => {
       return;
     }
 
-    const selectedSpecialty = MEDICAL_SPECIALTIES.find(s => s.code === specialtyCode);
+    const selectedSpecialty = getSpecialtyByCode(specialtyCode) || availableSpecialties[0];
 
     dbClient.createStaffMember(orgId, {
       primary_branch_id: activeBranch?.id,
@@ -54,7 +63,7 @@ export const Staff: React.FC = () => {
       license_number: licenseNumber || undefined,
       is_active: true,
     }, ['doctor', 'assistant_doctor'].includes(role) ? {
-      specialty_code: specialtyCode,
+      specialty_code: selectedSpecialty?.code || specialtyCode,
       specialty_title_ar: selectedSpecialty?.name_ar || 'طب عام',
       specialty_title_en: selectedSpecialty?.name_en || 'General Practice',
       commission_rate: commissionRate,
@@ -237,7 +246,7 @@ export const Staff: React.FC = () => {
                       onChange={e => setSpecialtyCode(e.target.value)}
                       className="w-full text-xs rounded-xl border border-slate-200 p-2 bg-white focus:border-medicore-500 focus:outline-none"
                     >
-                      {MEDICAL_SPECIALTIES.map(s => (
+                      {availableSpecialties.map(s => (
                         <option key={s.code} value={s.code}>
                           {s.name_ar} ({s.name_en})
                         </option>

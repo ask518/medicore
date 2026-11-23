@@ -15,6 +15,8 @@ import {
   MapPin, Phone, Mail, Sparkles, AlertCircle, FileText
 } from 'lucide-react';
 import { SubscriptionPlan, Organization, FacilityType } from '../../types/database';
+import { SpecialtyMultiSelector } from '../../components/specialties/SpecialtyMultiSelector';
+import { getSpecialtyByCode } from '../../config/medicalSpecialties';
 
 export const SuperAdminDashboard: React.FC = () => {
   const { locale, t } = useLanguage();
@@ -55,6 +57,9 @@ export const SuperAdminDashboard: React.FC = () => {
   const [newOrgPhone, setNewOrgPhone] = useState('');
   const [newOrgTaxNo, setNewOrgTaxNo] = useState('');
   const [newOrgPlan, setNewOrgPlan] = useState('medical_center');
+  const [selectedSpecialties, setSelectedSpecialties] = useState<string[]>([
+    'internal_medicine', 'general_surgery', 'orthopedic_surgery', 'dentistry', 'pediatrics', 'gynecology'
+  ]);
   const [adminName, setAdminName] = useState('');
   const [adminEmail, setAdminEmail] = useState('');
 
@@ -112,6 +117,7 @@ export const SuperAdminDashboard: React.FC = () => {
       timezone: 'Africa/Cairo',
       default_currency: 'EGP',
       is_enterprise_dedicated: newOrgPlan === 'enterprise',
+      specialties: selectedSpecialties,
     }, newOrgPlan, {
       name_ar: adminName || `مدير ${newOrgNameAr}`,
       name_en: newOrgNameEn ? `Admin ${newOrgNameEn}` : undefined,
@@ -363,7 +369,14 @@ export const SuperAdminDashboard: React.FC = () => {
                                 </span>
                               )}
                             </div>
-                            <p className="text-[11px] text-slate-400">{org.city} • {org.phone}</p>
+                            <div className="flex items-center gap-1.5 text-[11px] text-slate-400">
+                              <span>{org.city} • {org.phone}</span>
+                              {org.specialties && org.specialties.length > 0 && (
+                                <span className="px-1.5 py-0.5 rounded-md bg-medicore-50 text-medicore-700 font-bold border border-medicore-200 text-[10px]">
+                                  {org.specialties.length} {locale === 'ar' ? 'تخصص' : 'Specialties'}
+                                </span>
+                              )}
+                            </div>
                           </div>
                         </div>
                       </td>
@@ -727,10 +740,21 @@ export const SuperAdminDashboard: React.FC = () => {
                 </div>
               </div>
 
-              {/* Group 3: Subscription Plan */}
+              {/* Group 3: Medical Activities & Specialties */}
               <div>
                 <span className="text-xs font-black text-medicore-700 uppercase tracking-wider block mb-2">
-                  3. {locale === 'ar' ? 'باقة الاشتراك والفوترة' : 'Subscription & Pricing'}
+                  3. {locale === 'ar' ? 'الأنشطة والتخصصات الطبية المصرح بها (Medical Activities & Specialties)' : 'Medical Activities & Specialties'}
+                </span>
+                <SpecialtyMultiSelector
+                  selectedCodes={selectedSpecialties}
+                  onChange={setSelectedSpecialties}
+                />
+              </div>
+
+              {/* Group 4: Subscription Plan */}
+              <div>
+                <span className="text-xs font-black text-medicore-700 uppercase tracking-wider block mb-2">
+                  4. {locale === 'ar' ? 'باقة الاشتراك والفوترة' : 'Subscription & Pricing'}
                 </span>
                 <select
                   value={newOrgPlan}
@@ -744,10 +768,10 @@ export const SuperAdminDashboard: React.FC = () => {
                 </select>
               </div>
 
-              {/* Group 4: Clinic Admin Credentials */}
+              {/* Group 5: Clinic Admin Credentials */}
               <div>
                 <span className="text-xs font-black text-medicore-700 uppercase tracking-wider block mb-2">
-                  4. {locale === 'ar' ? 'بيانات مدير المنشأة الأول (Clinic Admin)' : 'Initial Administrator Account'}
+                  5. {locale === 'ar' ? 'بيانات مدير المنشأة الأول (Clinic Admin)' : 'Initial Administrator Account'}
                 </span>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>

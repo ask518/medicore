@@ -25,7 +25,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   mobileOpen,
   onCloseMobile,
 }) => {
-  const { user, isSuperAdmin, isDoctor, isReceptionist, isAccountant, isPatient, subscription } = useAuth();
+  const { user, isSuperAdmin, isPatient, subscription, can } = useAuth();
   const { locale, t } = useLanguage();
 
   const handleNavClick = (tabId: string) => {
@@ -51,24 +51,26 @@ export const Sidebar: React.FC<SidebarProps> = ({
       { id: 'patient_labs', label: t.portal.myLabResults, icon: <FlaskConical className="w-4 h-4 text-purple-600" /> },
     ];
   } else {
-    // Clinic Staff (Doctor, Owner, Reception, Accountant)
-    navItems = [
-      { id: 'dashboard', label: t.nav.clinicDashboard, icon: <LayoutDashboard className="w-4 h-4 text-medicore-600" /> },
-      { id: 'patients', label: t.nav.patients, icon: <Users className="w-4 h-4 text-sky-600" /> },
-      { id: 'appointments', label: t.nav.appointments, icon: <Calendar className="w-4 h-4 text-emerald-600" /> },
-      { id: 'consultation', label: t.nav.consultations, icon: <Stethoscope className="w-4 h-4 text-indigo-600" /> },
-      { id: 'specialties', label: t.nav.specialties, icon: <Activity className="w-4 h-4 text-rose-600" />, badge: 'Interactive' },
-      { id: 'prescriptions', label: t.nav.prescriptions, icon: <FileText className="w-4 h-4 text-teal-600" /> },
-      { id: 'laboratory', label: t.nav.laboratory, icon: <FlaskConical className="w-4 h-4 text-violet-600" /> },
-      { id: 'radiology', label: t.nav.radiology, icon: <Radio className="w-4 h-4 text-fuchsia-600" /> },
-      { id: 'billing', label: t.nav.billing, icon: <CreditCard className="w-4 h-4 text-emerald-600" /> },
-      { id: 'commissions', label: t.nav.commissions, icon: <DollarSign className="w-4 h-4 text-amber-600" /> },
-      { id: 'branches', label: t.nav.branches, icon: <Building2 className="w-4 h-4 text-slate-600" /> },
-      { id: 'staff', label: t.nav.staff, icon: <UserCog className="w-4 h-4 text-blue-600" /> },
-      { id: 'reports', label: t.nav.reports, icon: <BarChart3 className="w-4 h-4 text-cyan-600" /> },
-      { id: 'data_migration', label: t.nav.dataMigration, icon: <UploadCloud className="w-4 h-4 text-slate-500" /> },
-      { id: 'settings', label: t.nav.settings, icon: <Settings className="w-4 h-4 text-slate-500" /> },
+    // Clinic Staff (Doctor, Owner, Reception, Accountant) - RBAC Enforced
+    const allClinicItems: { id: string; label: string; icon: React.ReactNode; badge?: string; module: any }[] = [
+      { id: 'dashboard', label: t.nav.clinicDashboard, icon: <LayoutDashboard className="w-4 h-4 text-medicore-600" />, module: 'dashboard' },
+      { id: 'patients', label: t.nav.patients, icon: <Users className="w-4 h-4 text-sky-600" />, module: 'patients' },
+      { id: 'appointments', label: t.nav.appointments, icon: <Calendar className="w-4 h-4 text-emerald-600" />, module: 'appointments' },
+      { id: 'consultation', label: t.nav.consultations, icon: <Stethoscope className="w-4 h-4 text-indigo-600" />, module: 'consultations' },
+      { id: 'specialties', label: t.nav.specialties, icon: <Activity className="w-4 h-4 text-rose-600" />, badge: 'Interactive', module: 'consultations' },
+      { id: 'prescriptions', label: t.nav.prescriptions, icon: <FileText className="w-4 h-4 text-teal-600" />, module: 'prescriptions' },
+      { id: 'laboratory', label: t.nav.laboratory, icon: <FlaskConical className="w-4 h-4 text-violet-600" />, module: 'laboratory' },
+      { id: 'radiology', label: t.nav.radiology, icon: <Radio className="w-4 h-4 text-fuchsia-600" />, module: 'radiology' },
+      { id: 'billing', label: t.nav.billing, icon: <CreditCard className="w-4 h-4 text-emerald-600" />, module: 'billing' },
+      { id: 'commissions', label: t.nav.commissions, icon: <DollarSign className="w-4 h-4 text-amber-600" />, module: 'commissions' },
+      { id: 'branches', label: t.nav.branches, icon: <Building2 className="w-4 h-4 text-slate-600" />, module: 'branches' },
+      { id: 'staff', label: t.nav.staff, icon: <UserCog className="w-4 h-4 text-blue-600" />, module: 'staff' },
+      { id: 'reports', label: t.nav.reports, icon: <BarChart3 className="w-4 h-4 text-cyan-600" />, module: 'reports' },
+      { id: 'data_migration', label: t.nav.dataMigration, icon: <UploadCloud className="w-4 h-4 text-slate-500" />, module: 'settings' },
+      { id: 'settings', label: t.nav.settings, icon: <Settings className="w-4 h-4 text-slate-500" />, module: 'settings' },
     ];
+
+    navItems = allClinicItems.filter(item => can(item.module, 'view'));
   }
 
   return (

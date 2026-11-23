@@ -24,8 +24,12 @@ export interface PermissionCheck {
 
 export const ROLE_HIERARCHY: Record<AppRole, number> = {
   super_admin: 100,
+  platform_admin: 95,
   org_owner: 90,
+  platform_support: 85,
+  billing_admin: 85,
   general_manager: 80,
+  medical_director: 75,
   branch_manager: 70,
   doctor: 60,
   assistant_doctor: 55,
@@ -34,6 +38,7 @@ export const ROLE_HIERARCHY: Record<AppRole, number> = {
   lab_technician: 40,
   radiology_technician: 40,
   pharmacist: 40,
+  inventory_manager: 40,
   records_officer: 35,
   nurse: 30,
   receptionist: 20,
@@ -42,11 +47,18 @@ export const ROLE_HIERARCHY: Record<AppRole, number> = {
 
 export const ROLE_PERMISSIONS: Record<AppRole, string[]> = {
   super_admin: ['*'],
+  platform_admin: ['*'],
+  platform_support: ['dashboard:view', 'organizations:view', 'support:*'],
+  billing_admin: ['dashboard:view', 'billing:*', 'subscriptions:*', 'reports:financial'],
   org_owner: ['*'],
   general_manager: [
     'dashboard:view', 'patients:*', 'appointments:*', 'consultations:*',
     'prescriptions:*', 'laboratory:*', 'radiology:*', 'billing:*', 'staff:*',
     'branches:*', 'reports:*', 'inventory:*', 'insurance:*', 'settings:*'
+  ],
+  medical_director: [
+    'dashboard:view', 'patients:*', 'consultations:*', 'prescriptions:*',
+    'laboratory:*', 'radiology:*', 'reports:*', 'staff:view'
   ],
   branch_manager: [
     'dashboard:view', 'patients:*', 'appointments:*', 'consultations:view',
@@ -85,6 +97,9 @@ export const ROLE_PERMISSIONS: Record<AppRole, string[]> = {
   ],
   insurance_officer: [
     'dashboard:view', 'billing:view', 'insurance:*', 'reports:insurance'
+  ],
+  inventory_manager: [
+    'dashboard:view', 'inventory:*', 'reports:inventory'
   ],
   records_officer: [
     'dashboard:view', 'patients:*', 'reports:clinical'

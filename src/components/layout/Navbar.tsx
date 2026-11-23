@@ -19,7 +19,8 @@ interface NavbarProps {
 export const Navbar: React.FC<NavbarProps> = ({ onToggleMobileSidebar }) => {
   const { 
     user, organization, activeBranch, availableBranches, 
-    switchRole, switchBranch, isSuperAdmin, isEnterpriseDedicated, logout
+    switchRole, switchBranch, isSuperAdmin, isEnterpriseDedicated, logout,
+    setShowAuthModal
   } = useAuth();
   const { locale, setLocale, t } = useLanguage();
   const [showRoleMenu, setShowRoleMenu] = useState(false);
@@ -223,7 +224,19 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleMobileSidebar }) => {
                 </div>
               )}
 
-              <div className="p-1 border-t border-slate-100">
+              <div className="p-1 border-t border-slate-100 space-y-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowRoleMenu(false);
+                    setShowAuthModal(true);
+                  }}
+                  className="w-full text-start px-3 py-2 text-xs font-bold text-medicore-700 hover:bg-medicore-50 rounded-xl flex items-center gap-2 transition-colors"
+                >
+                  <UserCheck className="w-3.5 h-3.5 text-medicore-600" />
+                  <span>{locale === 'ar' ? 'تسجيل دخول بحساب آخر' : 'Sign In With Another Account'}</span>
+                </button>
+
                 <button
                   type="button"
                   onClick={() => {

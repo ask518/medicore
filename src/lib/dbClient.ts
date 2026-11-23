@@ -309,6 +309,7 @@ class MultiTenantDatabase {
       city: newOrg.city,
       is_main_branch: true,
       is_active: true,
+      specialties: newOrg.specialties || [],
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
