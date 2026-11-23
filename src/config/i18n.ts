@@ -49,7 +49,7 @@ export const translations = {
     nav: {
       superAdminDashboard: 'لوحة مالك المنصة (Super Admin)',
       organizations: 'إدارة المنشآت الطبية',
-      usersManagement: 'إدارة المستخدمين والصلاحيات',
+      platformTeam: 'فريق إدارة المنصة (Platform Team)',
       subscriptions: 'الاشتراكات والفوترة السحابية',
       platformAnalytics: 'إحصائيات المنصة و MRR',
       systemAnnouncements: 'إعلانات وتنبيهات النظام',
@@ -314,7 +314,7 @@ export const translations = {
     nav: {
       superAdminDashboard: 'Platform Owner (Super Admin)',
       organizations: 'Medical Organizations',
-      usersManagement: 'Users & Access Control',
+      platformTeam: 'Platform Administration Team',
       subscriptions: 'Subscriptions & SaaS Billing',
       platformAnalytics: 'Platform Analytics & MRR',
       systemAnnouncements: 'Announcements & Alerts',
