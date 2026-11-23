@@ -13,11 +13,12 @@ import {
   CheckCircle2, Users, Plus, Edit2, Megaphone,
   Activity, ArrowUpRight, Cloud, Trash2, ExternalLink,
   MapPin, Phone, Mail, Sparkles, AlertCircle, FileText,
-  Search, Filter, BarChart3, TrendingUp, PieChart, Layers, Check
+  Search, Filter, BarChart3, TrendingUp, PieChart, Layers, Check,
+  UserCog, UserCheck, UserX, Stethoscope, Lock, Key, Award
 } from 'lucide-react';
-import { SubscriptionPlan, Organization, FacilityType } from '../../types/database';
+import { SubscriptionPlan, Organization, FacilityType, AppRole, User } from '../../types/database';
 import { SpecialtyMultiSelector } from '../../components/specialties/SpecialtyMultiSelector';
-import { getSpecialtyByCode } from '../../config/medicalSpecialties';
+import { getSpecialtyByCode, MASTER_MEDICAL_SPECIALTIES } from '../../config/medicalSpecialties';
 
 interface SuperAdminDashboardProps {
   activeTab?: string;
@@ -91,6 +92,106 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
   const [newAnnTitle, setNewAnnTitle] = useState('');
   const [newAnnMessage, setNewAnnMessage] = useState('');
   const [newAnnSeverity, setNewAnnSeverity] = useState<'info' | 'warning' | 'maintenance'>('info');
+
+  // User Management State
+  const allUsers = dbClient.getUsers();
+  const [userSearchTerm, setUserSearchTerm] = useState('');
+  const [userRoleFilter, setUserRoleFilter] = useState<string>('all');
+  const [userOrgFilter, setUserOrgFilter] = useState<string>('all');
+  const [userStatusFilter, setUserStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
+
+  // Add User Modal State
+  const [showAddUserModal, setShowAddUserModal] = useState(false);
+  const [newUserNameAr, setNewUserNameAr] = useState('');
+  const [newUserNameEn, setNewUserNameEn] = useState('');
+  const [newUserEmail, setNewUserEmail] = useState('');
+  const [newUserPhone, setNewUserPhone] = useState('');
+  const [newUserRole, setNewUserRole] = useState<AppRole>('doctor');
+  const [newUserOrgId, setNewUserOrgId] = useState<string>('');
+  const [newUserBranchId, setNewUserBranchId] = useState<string>('');
+  const [newUserLicense, setNewUserLicense] = useState('');
+  const [newUserSpecialtyCode, setNewUserSpecialtyCode] = useState('orthopedics');
+  const [newUserConsultationFee, setNewUserConsultationFee] = useState<number>(300);
+  const [newUserFollowUpFee, setNewUserFollowUpFee] = useState<number>(150);
+  const [newUserCommissionRate, setNewUserCommissionRate] = useState<number>(20);
+
+  const filteredUsers = allUsers.filter(u => {
+    const term = userSearchTerm.toLowerCase();
+    const matchesSearch = 
+      u.name_ar.toLowerCase().includes(term) ||
+      (u.name_en && u.name_en.toLowerCase().includes(term)) ||
+      u.email.toLowerCase().includes(term) ||
+      (u.phone && u.phone.includes(term));
+    const matchesRole = userRoleFilter === 'all' || u.role === userRoleFilter;
+    const matchesOrg = userOrgFilter === 'all' || 
+      (userOrgFilter === 'platform' ? !u.organization_id : u.organization_id === userOrgFilter);
+    const matchesStatus = userStatusFilter === 'all' || 
+      (userStatusFilter === 'active' ? u.is_active : !u.is_active);
+    return matchesSearch && matchesRole && matchesOrg && matchesStatus;
+  });
+
+  const handleCreateUser = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newUserNameAr || !newUserEmail) {
+      error(locale === 'ar' ? 'يرجى إدخال اسم المستخدم والبريد الإلكتروني' : 'Please provide name and email');
+      return;
+    }
+
+    const selectedSpecialty = getSpecialtyByCode(newUserSpecialtyCode) || MASTER_MEDICAL_SPECIALTIES[0];
+
+    dbClient.createPlatformUser({
+      name_ar: newUserNameAr,
+      name_en: newUserNameEn || newUserNameAr,
+      email: newUserEmail,
+      phone: newUserPhone,
+      role: newUserRole,
+      organization_id: newUserOrgId || undefined,
+      primary_branch_id: newUserBranchId || undefined,
+      license_number: newUserLicense || undefined,
+    }, ['doctor', 'assistant_doctor'].includes(newUserRole) ? {
+      specialty_code: selectedSpecialty.code,
+      specialty_title_ar: selectedSpecialty.name_ar,
+      specialty_title_en: selectedSpecialty.name_en,
+      commission_rate: newUserCommissionRate,
+      consultation_fee: newUserConsultationFee,
+      follow_up_fee: newUserFollowUpFee,
+    } : undefined);
+
+    success(locale === 'ar' ? `تم إنشاء المستخدم "${newUserNameAr}" بنجاح وتعيين الصلاحيات!` : `User "${newUserNameAr}" created successfully!`);
+    setShowAddUserModal(false);
+
+    // Reset Form
+    setNewUserNameAr('');
+    setNewUserNameEn('');
+    setNewUserEmail('');
+    setNewUserPhone('');
+    setNewUserRole('doctor');
+    setNewUserOrgId('');
+    setNewUserBranchId('');
+    setNewUserLicense('');
+  };
+
+  const handleToggleUserStatus = (userItem: User) => {
+    dbClient.updateUserStatus(userItem.id, !userItem.is_active);
+    success(locale === 'ar' ? `تم ${userItem.is_active ? 'إيقاف' : 'تفعيل'} حساب المستخدم بنجاح` : `User ${userItem.is_active ? 'suspended' : 'activated'} successfully`);
+  };
+
+  const handleRoleChange = (userId: string, newRole: AppRole) => {
+    dbClient.updateUserRole(userId, newRole);
+    success(locale === 'ar' ? 'تم تحديث صلاحية ورتبة المستخدم بنجاح' : 'User role updated successfully');
+  };
+
+  const handleDeleteUser = (userItem: User) => {
+    const userName = userItem[locale === 'ar' ? 'name_ar' : 'name_en'];
+    if (window.confirm(locale === 'ar' ? `هل أنت متأكد من حذف المستخدم "${userName}"؟` : `Are you sure you want to delete user "${userName}"?`)) {
+      try {
+        dbClient.deleteUser(userItem.id);
+        success(locale === 'ar' ? `تم حذف المستخدم ${userName} بنجاح.` : `User ${userName} deleted successfully.`);
+      } catch (err: any) {
+        error(err.message || 'Error deleting user');
+      }
+    }
+  };
 
   const handleUpdateStatus = (orgId: string, newStatus: Organization['status']) => {
     dbClient.updateOrganizationStatus(orgId, newStatus);
@@ -231,7 +332,16 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
           <p className="text-slate-300 text-xs sm:text-sm max-w-2xl">{t.superAdmin.subtitle}</p>
         </div>
 
-        <div className="flex items-center gap-2.5 self-start sm:self-auto">
+        <div className="flex items-center gap-2.5 self-start sm:self-auto flex-wrap">
+          <button
+            type="button"
+            onClick={() => setShowAddUserModal(true)}
+            className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-lg transition-all"
+          >
+            <UserCog className="w-4 h-4" />
+            <span>{locale === 'ar' ? '+ إنشاء مستخدم جديد' : '+ Create User'}</span>
+          </button>
+
           <button
             type="button"
             onClick={() => setShowAddOrgModal(true)}
@@ -271,6 +381,22 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
           <span>{locale === 'ar' ? 'إدارة المنشآت الطبية' : 'Facilities Management'}</span>
           <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-medicore-100 text-medicore-800">
             {totalOrgs}
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => onSelectTab?.('super_admin_users')}
+          className={`px-4 py-2.5 rounded-xl transition-all flex items-center gap-2 shrink-0 ${
+            activeTab === 'super_admin_users'
+              ? 'bg-white text-medicore-700 shadow-xs border border-slate-200'
+              : 'text-slate-600 hover:text-slate-900'
+          }`}
+        >
+          <UserCog className="w-4 h-4 text-blue-600" />
+          <span>{locale === 'ar' ? 'إدارة المستخدمين والصلاحيات' : 'Users & Access Control'}</span>
+          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-800">
+            {allUsers.length}
           </span>
         </button>
 
@@ -727,6 +853,384 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
                                 onClick={() => handleDeleteOrg(org)}
                                 className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
                                 title={locale === 'ar' ? 'حذف المنشأة نهائياً' : 'Delete Organization'}
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* VIEW: DEDICATED USERS & RBAC ACCESS CONTROL ENGINE */}
+      {/* ========================================================================= */}
+      {activeTab === 'super_admin_users' && (
+        <div className="space-y-6">
+          {/* User Metrics Summary Cards */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs flex items-center justify-between">
+              <div>
+                <p className="text-xs font-bold text-slate-500">{locale === 'ar' ? 'إجمالي مستخدمي النظام' : 'Total System Users'}</p>
+                <p className="text-2xl font-black text-slate-900 mt-1">{allUsers.length}</p>
+                <p className="text-[11px] text-slate-400 mt-0.5">{locale === 'ar' ? 'عبر كافة المنشآت والمنصة' : 'Across all facilities'}</p>
+              </div>
+              <div className="w-12 h-12 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
+                <Users className="w-6 h-6" />
+              </div>
+            </div>
+
+            <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs flex items-center justify-between">
+              <div>
+                <p className="text-xs font-bold text-slate-500">{locale === 'ar' ? 'الحسابات النشطة والمفعلة' : 'Active Accounts'}</p>
+                <p className="text-2xl font-black text-emerald-600 mt-1">
+                  {allUsers.filter(u => u.is_active).length}
+                </p>
+                <p className="text-[11px] text-emerald-600/80 mt-0.5">{locale === 'ar' ? 'جاهزون للدخول والعمل' : 'Operational status'}</p>
+              </div>
+              <div className="w-12 h-12 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                <CheckCircle2 className="w-6 h-6" />
+              </div>
+            </div>
+
+            <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs flex items-center justify-between">
+              <div>
+                <p className="text-xs font-bold text-slate-500">{locale === 'ar' ? 'الأطباء والاستشاريون' : 'Doctors & Consultants'}</p>
+                <p className="text-2xl font-black text-indigo-600 mt-1">
+                  {allUsers.filter(u => ['doctor', 'assistant_doctor'].includes(u.role)).length}
+                </p>
+                <p className="text-[11px] text-indigo-500 mt-0.5">{locale === 'ar' ? 'مسجلون بكشوف العيادات' : 'Clinical practitioners'}</p>
+              </div>
+              <div className="w-12 h-12 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
+                <Stethoscope className="w-6 h-6" />
+              </div>
+            </div>
+
+            <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs flex items-center justify-between">
+              <div>
+                <p className="text-xs font-bold text-slate-500">{locale === 'ar' ? 'إدارة المنصة والمجمعات' : 'Platform & Facility Admins'}</p>
+                <p className="text-2xl font-black text-purple-600 mt-1">
+                  {allUsers.filter(u => ['super_admin', 'platform_admin', 'org_owner', 'general_manager'].includes(u.role)).length}
+                </p>
+                <p className="text-[11px] text-purple-500 mt-0.5">{locale === 'ar' ? 'صلاحيات الإدارة والتحكم' : 'Management RBAC'}</p>
+              </div>
+              <div className="w-12 h-12 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center">
+                <ShieldCheck className="w-6 h-6" />
+              </div>
+            </div>
+          </div>
+
+          {/* Users Table Card */}
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+            {/* Header with Search and Filter */}
+            <div className="p-5 border-b border-slate-100 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <h3 className="font-black text-slate-900 text-lg flex items-center gap-2">
+                    <UserCog className="w-5 h-5 text-blue-600" />
+                    <span>{locale === 'ar' ? 'سجل المستخدمين وتعيين الصلاحيات (RBAC Access Control)' : 'Users Ledger & Access Control'}</span>
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    {locale === 'ar'
+                      ? 'التحكم المركزي في حسابات مالكي المنشآت، الأطباء، التمريض، الاستقبال، والمحاسبة وتفعيل الصلاحيات فورياً'
+                      : 'Centralized management of clinic owners, doctors, nurses, receptionists, and accountants with real-time RBAC'}
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setShowAddUserModal(true)}
+                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-xs transition-all self-start sm:self-auto"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>{locale === 'ar' ? '+ إنشاء مستخدم جديد' : '+ Create User'}</span>
+                </button>
+              </div>
+
+              {/* Filters Bar */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-2">
+                {/* Search */}
+                <div className="relative">
+                  <Search className="w-4 h-4 absolute start-3 top-3 text-slate-400" />
+                  <input
+                    type="text"
+                    value={userSearchTerm}
+                    onChange={e => setUserSearchTerm(e.target.value)}
+                    placeholder={locale === 'ar' ? 'بحث بالاسم، الإيميل أو الهاتف...' : 'Search by name, email, phone...'}
+                    className="w-full ps-9 pe-4 py-2 rounded-xl border border-slate-200 text-xs focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+
+                {/* Role Filter */}
+                <select
+                  value={userRoleFilter}
+                  onChange={e => setUserRoleFilter(e.target.value)}
+                  className="w-full py-2 px-3 rounded-xl border border-slate-200 text-xs font-bold text-slate-700 focus:border-blue-500 focus:outline-none bg-slate-50/50"
+                >
+                  <option value="all">{locale === 'ar' ? 'جميع الصلاحيات والرتب' : 'All Roles & Permissions'}</option>
+                  <optgroup label={locale === 'ar' ? 'صلاحيات إدارة المنصة' : 'Platform Roles'}>
+                    <option value="super_admin">{t.roles.super_admin}</option>
+                    <option value="platform_admin">{t.roles.platform_admin}</option>
+                    <option value="platform_support">{t.roles.platform_support}</option>
+                    <option value="billing_admin">{t.roles.billing_admin}</option>
+                  </optgroup>
+                  <optgroup label={locale === 'ar' ? 'إدارة المنشآت الطبية' : 'Facility Leadership'}>
+                    <option value="org_owner">{t.roles.org_owner}</option>
+                    <option value="general_manager">{t.roles.general_manager}</option>
+                    <option value="branch_manager">{t.roles.branch_manager}</option>
+                    <option value="medical_director">{t.roles.medical_director}</option>
+                  </optgroup>
+                  <optgroup label={locale === 'ar' ? 'الطاقم الطبي والسريري' : 'Clinical Staff'}>
+                    <option value="doctor">{t.roles.doctor}</option>
+                    <option value="assistant_doctor">{t.roles.assistant_doctor}</option>
+                    <option value="nurse">{t.roles.nurse}</option>
+                    <option value="lab_technician">{t.roles.lab_technician}</option>
+                    <option value="radiology_technician">{t.roles.radiology_technician}</option>
+                    <option value="pharmacist">{t.roles.pharmacist}</option>
+                  </optgroup>
+                  <optgroup label={locale === 'ar' ? 'الإدارة والمالية والاستقبال' : 'Admin & Support'}>
+                    <option value="receptionist">{t.roles.receptionist}</option>
+                    <option value="accountant">{t.roles.accountant}</option>
+                    <option value="insurance_officer">{t.roles.insurance_officer}</option>
+                    <option value="inventory_manager">{t.roles.inventory_manager}</option>
+                    <option value="records_officer">{t.roles.records_officer}</option>
+                    <option value="patient">{t.roles.patient}</option>
+                  </optgroup>
+                </select>
+
+                {/* Organization Filter */}
+                <select
+                  value={userOrgFilter}
+                  onChange={e => setUserOrgFilter(e.target.value)}
+                  className="w-full py-2 px-3 rounded-xl border border-slate-200 text-xs font-bold text-slate-700 focus:border-blue-500 focus:outline-none bg-slate-50/50"
+                >
+                  <option value="all">{locale === 'ar' ? 'جميع المنشآت والجهات' : 'All Organizations'}</option>
+                  <option value="platform">{locale === 'ar' ? 'منصة MEDICORE المركزية (Platform Level)' : 'Platform Staff'}</option>
+                  {orgs.map(org => (
+                    <option key={org.id} value={org.id}>
+                      {org[locale === 'ar' ? 'name_ar' : 'name_en']}
+                    </option>
+                  ))}
+                </select>
+
+                {/* Status Filter */}
+                <select
+                  value={userStatusFilter}
+                  onChange={e => setUserStatusFilter(e.target.value as any)}
+                  className="w-full py-2 px-3 rounded-xl border border-slate-200 text-xs font-bold text-slate-700 focus:border-blue-500 focus:outline-none bg-slate-50/50"
+                >
+                  <option value="all">{locale === 'ar' ? 'كافة حالات الحساب' : 'All Account Statuses'}</option>
+                  <option value="active">{locale === 'ar' ? 'نشط ومفعل فقط' : 'Active Only'}</option>
+                  <option value="inactive">{locale === 'ar' ? 'موقوف / معطل فقط' : 'Suspended Only'}</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Users Table */}
+            {filteredUsers.length === 0 ? (
+              <div className="p-12 text-center space-y-3">
+                <div className="w-14 h-14 rounded-2xl bg-slate-100 text-slate-400 flex items-center justify-center mx-auto">
+                  <Users className="w-7 h-7" />
+                </div>
+                <h4 className="font-bold text-slate-700 text-base">
+                  {locale === 'ar' ? 'لم يتم العثور على أي مستخدمين' : 'No users found'}
+                </h4>
+                <p className="text-xs text-slate-400 max-w-sm mx-auto">
+                  {locale === 'ar' ? 'لا توجد نتائج تطابق معايير البحث أو التصفية المختارة.' : 'No users match the selected search and filter criteria.'}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setShowAddUserModal(true)}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold inline-flex items-center gap-2 mt-2"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>{locale === 'ar' ? 'إضافة مستخدم جديد الآن' : 'Add New User Now'}</span>
+                </button>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-start text-xs">
+                  <thead className="bg-slate-50/75 border-b border-slate-200 text-slate-500 font-bold">
+                    <tr>
+                      <th className="py-3 px-4 text-start">{locale === 'ar' ? 'المستخدم' : 'User'}</th>
+                      <th className="py-3 px-4 text-start">{locale === 'ar' ? 'المنشأة التابع لها' : 'Facility / Org'}</th>
+                      <th className="py-3 px-4 text-start">{locale === 'ar' ? 'الصلاحية والرتبة (RBAC)' : 'Role & Permissions'}</th>
+                      <th className="py-3 px-4 text-start">{locale === 'ar' ? 'تعديل الصلاحية' : 'Change Role'}</th>
+                      <th className="py-3 px-4 text-start">{locale === 'ar' ? 'الحالة' : 'Status'}</th>
+                      <th className="py-3 px-4 text-end">{locale === 'ar' ? 'إجراءات' : 'Actions'}</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {filteredUsers.map(userItem => {
+                      const org = userItem.organization_id ? dbClient.getOrganizationById(userItem.organization_id) : null;
+                      const isDoctor = ['doctor', 'assistant_doctor'].includes(userItem.role);
+                      const docInfo = isDoctor ? dbClient.getDoctors(userItem.organization_id || '').find(d => d.user_id === userItem.id) : null;
+                      const isSuper = userItem.role === 'super_admin';
+
+                      return (
+                        <tr key={userItem.id} className="hover:bg-slate-50/75 transition-colors">
+                          {/* User info */}
+                          <td className="py-3.5 px-4">
+                            <div className="flex items-center gap-3">
+                              <div className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold text-xs shrink-0 ${
+                                isSuper 
+                                  ? 'bg-purple-100 text-purple-700 border border-purple-200' 
+                                  : isDoctor 
+                                    ? 'bg-indigo-100 text-indigo-700 border border-indigo-200' 
+                                    : 'bg-blue-50 text-blue-700 border border-blue-100'
+                              }`}>
+                                {userItem.name_ar ? userItem.name_ar.slice(0, 1) : 'U'}
+                              </div>
+                              <div>
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span className="font-bold text-slate-900 text-xs">
+                                    {userItem[locale === 'ar' ? 'name_ar' : 'name_en']}
+                                  </span>
+                                  {userItem.license_number && (
+                                    <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-slate-100 text-slate-600">
+                                      {userItem.license_number}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="text-[11px] text-slate-400 flex items-center gap-2 mt-0.5">
+                                  <span className="flex items-center gap-1 font-mono">
+                                    <Mail className="w-3 h-3" />
+                                    {userItem.email}
+                                  </span>
+                                  {userItem.phone && (
+                                    <span className="flex items-center gap-1 font-mono">
+                                      <Phone className="w-3 h-3" />
+                                      {userItem.phone}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          </td>
+
+                          {/* Facility */}
+                          <td className="py-3.5 px-4">
+                            {org ? (
+                              <div>
+                                <span className="font-bold text-slate-800 block text-xs">
+                                  {org[locale === 'ar' ? 'name_ar' : 'name_en']}
+                                </span>
+                                <span className="text-[10px] text-slate-400 flex items-center gap-1 mt-0.5">
+                                  <MapPin className="w-3 h-3" />
+                                  {org.city}
+                                </span>
+                              </div>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full bg-purple-50 text-purple-700 border border-purple-200">
+                                <ShieldCheck className="w-3 h-3" />
+                                <span>{locale === 'ar' ? 'منصة MEDICORE المركزية' : 'Platform Central'}</span>
+                              </span>
+                            )}
+                          </td>
+
+                          {/* Role Badge & Details */}
+                          <td className="py-3.5 px-4">
+                            <div className="space-y-1">
+                              <span className={`inline-flex items-center gap-1 text-[11px] font-black px-2.5 py-0.5 rounded-full border ${
+                                isSuper 
+                                  ? 'bg-purple-100 text-purple-800 border-purple-300'
+                                  : ['platform_admin', 'billing_admin', 'platform_support'].includes(userItem.role)
+                                    ? 'bg-sky-100 text-sky-800 border-sky-300'
+                                    : ['org_owner', 'general_manager', 'branch_manager'].includes(userItem.role)
+                                      ? 'bg-amber-100 text-amber-800 border-amber-300'
+                                      : isDoctor
+                                        ? 'bg-indigo-100 text-indigo-800 border-indigo-300'
+                                        : 'bg-slate-100 text-slate-700 border-slate-300'
+                              }`}>
+                                {t.roles[userItem.role] || userItem.role}
+                              </span>
+                              {docInfo && (
+                                <p className="text-[10px] text-slate-500">
+                                  {docInfo.specialty_title_ar} • كشف: {docInfo.consultation_fee} ج.م
+                                </p>
+                              )}
+                            </div>
+                          </td>
+
+                          {/* Instant Role Change Dropdown */}
+                          <td className="py-3.5 px-4">
+                            <select
+                              value={userItem.role}
+                              onChange={e => handleRoleChange(userItem.id, e.target.value as AppRole)}
+                              className="text-xs font-bold p-1.5 rounded-lg border border-slate-200 bg-white hover:border-blue-400 focus:outline-none"
+                            >
+                              <optgroup label={locale === 'ar' ? 'المنصة' : 'Platform'}>
+                                <option value="super_admin">{t.roles.super_admin}</option>
+                                <option value="platform_admin">{t.roles.platform_admin}</option>
+                                <option value="platform_support">{t.roles.platform_support}</option>
+                                <option value="billing_admin">{t.roles.billing_admin}</option>
+                              </optgroup>
+                              <optgroup label={locale === 'ar' ? 'إدارة المنشأة' : 'Facility Leadership'}>
+                                <option value="org_owner">{t.roles.org_owner}</option>
+                                <option value="general_manager">{t.roles.general_manager}</option>
+                                <option value="branch_manager">{t.roles.branch_manager}</option>
+                                <option value="medical_director">{t.roles.medical_director}</option>
+                              </optgroup>
+                              <optgroup label={locale === 'ar' ? 'الطبي والتمريض' : 'Clinical'}>
+                                <option value="doctor">{t.roles.doctor}</option>
+                                <option value="assistant_doctor">{t.roles.assistant_doctor}</option>
+                                <option value="nurse">{t.roles.nurse}</option>
+                                <option value="lab_technician">{t.roles.lab_technician}</option>
+                                <option value="radiology_technician">{t.roles.radiology_technician}</option>
+                                <option value="pharmacist">{t.roles.pharmacist}</option>
+                              </optgroup>
+                              <optgroup label={locale === 'ar' ? 'الإدارة والمالية' : 'Admin & Staff'}>
+                                <option value="receptionist">{t.roles.receptionist}</option>
+                                <option value="accountant">{t.roles.accountant}</option>
+                                <option value="insurance_officer">{t.roles.insurance_officer}</option>
+                                <option value="inventory_manager">{t.roles.inventory_manager}</option>
+                                <option value="records_officer">{t.roles.records_officer}</option>
+                                <option value="patient">{t.roles.patient}</option>
+                              </optgroup>
+                            </select>
+                          </td>
+
+                          {/* Status */}
+                          <td className="py-3.5 px-4">
+                            <span className={`inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-full ${
+                              userItem.is_active
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : 'bg-rose-100 text-rose-800'
+                            }`}>
+                              <span className={`w-1.5 h-1.5 rounded-full ${userItem.is_active ? 'bg-emerald-500' : 'bg-rose-500'}`}></span>
+                              <span>{userItem.is_active ? t.common.active : (locale === 'ar' ? 'موقوف' : 'Suspended')}</span>
+                            </span>
+                          </td>
+
+                          {/* Actions */}
+                          <td className="py-3.5 px-4 text-end">
+                            <div className="flex items-center justify-end gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => handleToggleUserStatus(userItem)}
+                                className={`p-1.5 rounded-lg border text-xs font-bold transition-all ${
+                                  userItem.is_active
+                                    ? 'border-amber-200 text-amber-700 bg-amber-50 hover:bg-amber-100'
+                                    : 'border-emerald-200 text-emerald-700 bg-emerald-50 hover:bg-emerald-100'
+                                }`}
+                                title={userItem.is_active ? (locale === 'ar' ? 'إيقاف الحساب' : 'Suspend Account') : (locale === 'ar' ? 'تفعيل الحساب' : 'Activate Account')}
+                              >
+                                {userItem.is_active ? <UserX className="w-3.5 h-3.5" /> : <UserCheck className="w-3.5 h-3.5" />}
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteUser(userItem)}
+                                disabled={isSuper && allUsers.filter(u => u.role === 'super_admin').length <= 1}
+                                className="p-1.5 rounded-lg border border-rose-200 text-rose-600 bg-rose-50 hover:bg-rose-100 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                                title={locale === 'ar' ? 'حذف المستخدم نهائياً' : 'Delete User'}
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
                               </button>
@@ -1338,6 +1842,288 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
                 >
                   <Check className="w-4 h-4" />
                   <span>{locale === 'ar' ? 'اعتماد وتسجيل المنشأة' : 'Register Facility'}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Create New User Modal */}
+      {showAddUserModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-3xl max-w-xl w-full p-6 sm:p-8 shadow-2xl animate-scale-in border border-slate-100 my-8">
+            <div className="flex items-center justify-between pb-4 border-b border-slate-100 mb-5">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center">
+                  <UserCog className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-black text-slate-900 text-lg">
+                    {locale === 'ar' ? 'إنشاء حساب مستخدم وتعيين الصلاحيات' : 'Create User & Assign RBAC Role'}
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    {locale === 'ar' ? 'إضافة حساب جديد وتحديد المنشأة التابع لها وتفعيل دوره وصلاحياته' : 'Add account, select facility, and configure operational permissions'}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAddUserModal(false)}
+                className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center text-xs font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateUser} className="space-y-4">
+              {/* Names */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    {locale === 'ar' ? 'الاسم بالكامل (بالعربية) *' : 'Full Name (Arabic) *'}
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={newUserNameAr}
+                    onChange={e => setNewUserNameAr(e.target.value)}
+                    placeholder={locale === 'ar' ? 'مثال: د. حسام محمود' : 'e.g. Dr. Hossam Mahmoud'}
+                    className="w-full text-xs rounded-xl border border-slate-200 p-2.5 focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    {locale === 'ar' ? 'الاسم بالإنجليزية (اختياري)' : 'Full Name (English)'}
+                  </label>
+                  <input
+                    type="text"
+                    value={newUserNameEn}
+                    onChange={e => setNewUserNameEn(e.target.value)}
+                    placeholder="e.g. Dr. Hossam Mahmoud"
+                    className="w-full text-xs rounded-xl border border-slate-200 p-2.5 focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              {/* Email & Phone */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    {locale === 'ar' ? 'البريد الإلكتروني الرسمي *' : 'Official Email *'}
+                  </label>
+                  <input
+                    type="email"
+                    required
+                    value={newUserEmail}
+                    onChange={e => setNewUserEmail(e.target.value)}
+                    placeholder="user@medicore.cloud"
+                    className="w-full text-xs rounded-xl border border-slate-200 p-2.5 focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    {locale === 'ar' ? 'رقم الهاتف المحمول' : 'Mobile Phone'}
+                  </label>
+                  <input
+                    type="tel"
+                    value={newUserPhone}
+                    onChange={e => setNewUserPhone(e.target.value)}
+                    placeholder="+20 100 123 4567"
+                    className="w-full text-xs rounded-xl border border-slate-200 p-2.5 focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              {/* Role Selection */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  {locale === 'ar' ? 'الدور الوظيفي ومستوى الصلاحية (RBAC) *' : 'System Role & Access Level *'}
+                </label>
+                <select
+                  value={newUserRole}
+                  onChange={e => setNewUserRole(e.target.value as AppRole)}
+                  className="w-full text-xs font-bold rounded-xl border border-slate-200 p-2.5 focus:border-blue-500 focus:outline-none bg-slate-50/50"
+                >
+                  <optgroup label={locale === 'ar' ? 'إدارة المنصة المركزية' : 'Platform Level'}>
+                    <option value="super_admin">{t.roles.super_admin}</option>
+                    <option value="platform_admin">{t.roles.platform_admin}</option>
+                    <option value="platform_support">{t.roles.platform_support}</option>
+                    <option value="billing_admin">{t.roles.billing_admin}</option>
+                  </optgroup>
+                  <optgroup label={locale === 'ar' ? 'إدارة المجمع والمنشأة الطبية' : 'Facility Leadership'}>
+                    <option value="org_owner">{t.roles.org_owner}</option>
+                    <option value="general_manager">{t.roles.general_manager}</option>
+                    <option value="branch_manager">{t.roles.branch_manager}</option>
+                    <option value="medical_director">{t.roles.medical_director}</option>
+                  </optgroup>
+                  <optgroup label={locale === 'ar' ? 'الطاقم الطبي والسريري' : 'Clinical Practitioners'}>
+                    <option value="doctor">{t.roles.doctor}</option>
+                    <option value="assistant_doctor">{t.roles.assistant_doctor}</option>
+                    <option value="nurse">{t.roles.nurse}</option>
+                    <option value="lab_technician">{t.roles.lab_technician}</option>
+                    <option value="radiology_technician">{t.roles.radiology_technician}</option>
+                    <option value="pharmacist">{t.roles.pharmacist}</option>
+                  </optgroup>
+                  <optgroup label={locale === 'ar' ? 'الإدارة والمالية والاستقبال' : 'Administrative & Support'}>
+                    <option value="receptionist">{t.roles.receptionist}</option>
+                    <option value="accountant">{t.roles.accountant}</option>
+                    <option value="insurance_officer">{t.roles.insurance_officer}</option>
+                    <option value="inventory_manager">{t.roles.inventory_manager}</option>
+                    <option value="records_officer">{t.roles.records_officer}</option>
+                    <option value="patient">{t.roles.patient}</option>
+                  </optgroup>
+                </select>
+              </div>
+
+              {/* Organization & Branch */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    {locale === 'ar' ? 'المنشأة الطبية التابع لها' : 'Assigned Facility / Organization'}
+                  </label>
+                  <select
+                    value={newUserOrgId}
+                    onChange={e => {
+                      setNewUserOrgId(e.target.value);
+                      setNewUserBranchId('');
+                    }}
+                    className="w-full text-xs font-bold rounded-xl border border-slate-200 p-2.5 focus:border-blue-500 focus:outline-none bg-slate-50/50"
+                  >
+                    <option value="">{locale === 'ar' ? 'منصة MEDICORE المركزية (مستخدم عام)' : 'Platform Central (No Org)'}</option>
+                    {orgs.map(org => (
+                      <option key={org.id} value={org.id}>
+                        {org[locale === 'ar' ? 'name_ar' : 'name_en']} ({org.city})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    {locale === 'ar' ? 'الفرع الأساسي للعمل' : 'Primary Branch'}
+                  </label>
+                  <select
+                    value={newUserBranchId}
+                    onChange={e => setNewUserBranchId(e.target.value)}
+                    disabled={!newUserOrgId}
+                    className="w-full text-xs font-bold rounded-xl border border-slate-200 p-2.5 focus:border-blue-500 focus:outline-none bg-slate-50/50 disabled:opacity-50"
+                  >
+                    <option value="">{locale === 'ar' ? 'الفرع الرئيسي التلقائي' : 'Default Main Branch'}</option>
+                    {newUserOrgId && dbClient.getBranches(newUserOrgId).map(b => (
+                      <option key={b.id} value={b.id}>
+                        {b[locale === 'ar' ? 'name_ar' : 'name_en']}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Doctor-Specific Clinical & Financial Section */}
+              {['doctor', 'assistant_doctor'].includes(newUserRole) && (
+                <div className="p-4 rounded-2xl bg-indigo-50/70 border border-indigo-200 space-y-3.5 animate-fade-in">
+                  <div className="flex items-center gap-2 text-indigo-900 font-bold text-xs">
+                    <Stethoscope className="w-4 h-4 text-indigo-600" />
+                    <span>{locale === 'ar' ? 'البيانات السريرية والمالية للطبيب' : 'Clinical & Financial Details'}</span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[11px] font-bold text-indigo-900 mb-1">
+                        {locale === 'ar' ? 'التخصص الطبي (من الدليل الموحد 94+)' : 'Medical Specialty'}
+                      </label>
+                      <select
+                        value={newUserSpecialtyCode}
+                        onChange={e => setNewUserSpecialtyCode(e.target.value)}
+                        className="w-full text-xs font-bold rounded-xl border border-indigo-300 p-2 bg-white focus:outline-none"
+                      >
+                        {MASTER_MEDICAL_SPECIALTIES.map(s => (
+                          <option key={s.code} value={s.code}>
+                            {s.name_ar} ({s.category})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold text-indigo-900 mb-1">
+                        {locale === 'ar' ? 'رقم ترخيص مزاولة المهنة' : 'Medical License Number'}
+                      </label>
+                      <input
+                        type="text"
+                        value={newUserLicense}
+                        onChange={e => setNewUserLicense(e.target.value)}
+                        placeholder="EGY-MED-XXXXX"
+                        className="w-full text-xs rounded-xl border border-indigo-300 p-2 bg-white focus:outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-3">
+                    <div>
+                      <label className="block text-[11px] font-bold text-indigo-900 mb-1">
+                        {locale === 'ar' ? 'قيمة الكشف (ج.م)' : 'Consultation Fee'}
+                      </label>
+                      <input
+                        type="number"
+                        value={newUserConsultationFee}
+                        onChange={e => setNewUserConsultationFee(Number(e.target.value))}
+                        className="w-full text-xs rounded-xl border border-indigo-300 p-2 bg-white focus:outline-none"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold text-indigo-900 mb-1">
+                        {locale === 'ar' ? 'قيمة الإعادة (ج.م)' : 'Follow-up Fee'}
+                      </label>
+                      <input
+                        type="number"
+                        value={newUserFollowUpFee}
+                        onChange={e => setNewUserFollowUpFee(Number(e.target.value))}
+                        className="w-full text-xs rounded-xl border border-indigo-300 p-2 bg-white focus:outline-none"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold text-indigo-900 mb-1">
+                        {locale === 'ar' ? 'نسبة العمولة (%)' : 'Commission (%)'}
+                      </label>
+                      <input
+                        type="number"
+                        value={newUserCommissionRate}
+                        onChange={e => setNewUserCommissionRate(Number(e.target.value))}
+                        className="w-full text-xs rounded-xl border border-indigo-300 p-2 bg-white focus:outline-none"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Security Audit Trail Notice */}
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 flex items-start gap-2 text-xs text-slate-600">
+                <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                <span>
+                  {locale === 'ar'
+                    ? 'يتم تفعيل الحساب فورياً وحفظه في قاعدة البيانات المشفرة وسجل التدقيق الأمني (Audit Log). بإمكان المستخدم تسجيل الدخول فوراً ببياناته.'
+                    : 'Account will be immediately created in the database with audit-logging. Credentials can be used for instant sign-in.'}
+                </span>
+              </div>
+
+              {/* Modal Buttons */}
+              <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setShowAddUserModal(false)}
+                  className="px-4 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors"
+                >
+                  {t.common.cancel}
+                </button>
+                <button
+                  type="submit"
+                  className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center gap-2"
+                >
+                  <Check className="w-4 h-4" />
+                  <span>{locale === 'ar' ? 'إنشاء وتفعيل الحساب الآن' : 'Create & Activate Account'}</span>
                 </button>
               </div>
             </form>

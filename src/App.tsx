@@ -48,6 +48,7 @@ const AppContent: React.FC = () => {
       // Super Admin
       case 'super_admin_dashboard':
       case 'super_admin_orgs':
+      case 'super_admin_users':
       case 'super_admin_subscriptions':
       case 'super_admin_analytics':
       case 'super_admin_announcements':

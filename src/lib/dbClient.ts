@@ -7,7 +7,7 @@ import {
   Organization, SubscriptionPlan, Subscription, Branch, User, Doctor,
   Patient, Appointment, Consultation, AnatomicalFinding, Prescription,
   LaboratoryOrder, RadiologyOrder, Service, Invoice, Payment, Cashbox,
-  DoctorCommission, AuditLog, SystemAnnouncement
+  DoctorCommission, AuditLog, SystemAnnouncement, AppRole
 } from '../types/database';
 import { INITIAL_PLANS, INITIAL_USERS, INITIAL_ANNOUNCEMENTS } from './mockData';
 import { supabase } from './supabase';
@@ -535,6 +535,122 @@ class MultiTenantDatabase {
     this.logAudit({ orgId, action: 'CREATE_STAFF', entityType: 'users', entityId: user.id });
     this.notify();
     return user;
+  }
+
+  public createPlatformUser(
+    userData: {
+      name_ar: string;
+      name_en?: string;
+      email: string;
+      phone?: string;
+      role: AppRole;
+      organization_id?: string;
+      primary_branch_id?: string;
+      license_number?: string;
+    },
+    doctorDetails?: {
+      specialty_code: string;
+      specialty_title_ar: string;
+      specialty_title_en: string;
+      commission_rate?: number;
+      consultation_fee?: number;
+      follow_up_fee?: number;
+    }
+  ) {
+    const user: User = {
+      id: `user-${Date.now()}`,
+      organization_id: userData.organization_id || undefined,
+      primary_branch_id: userData.primary_branch_id || undefined,
+      role: userData.role,
+      name_ar: userData.name_ar,
+      name_en: userData.name_en || userData.name_ar,
+      email: userData.email,
+      phone: userData.phone,
+      license_number: userData.license_number,
+      is_active: true,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+    this.users.push(user);
+
+    if (doctorDetails || ['doctor', 'assistant_doctor'].includes(user.role)) {
+      const doc: Doctor = {
+        id: `doc-${Date.now()}`,
+        organization_id: userData.organization_id || 'platform',
+        user_id: user.id,
+        specialty_code: doctorDetails?.specialty_code || 'orthopedics',
+        specialty_title_ar: doctorDetails?.specialty_title_ar || 'جراحة العظام والمفاصل',
+        specialty_title_en: doctorDetails?.specialty_title_en || 'Orthopedics & Joint Surgery',
+        commission_type: 'percentage',
+        commission_rate: doctorDetails?.commission_rate || 20,
+        consultation_fee: doctorDetails?.consultation_fee || 300,
+        follow_up_fee: doctorDetails?.follow_up_fee || 150,
+        slot_duration_minutes: 20,
+        is_active: true,
+        created_at: new Date().toISOString(),
+      };
+      this.doctors.push(doc);
+    }
+
+    this.persistToStorage();
+    this.logAudit({
+      orgId: userData.organization_id,
+      action: 'CREATE_USER',
+      entityType: 'users',
+      entityId: user.id,
+      newValues: { name: user.name_ar, email: user.email, role: user.role }
+    });
+    this.notify();
+    return user;
+  }
+
+  public updateUser(userId: string, updates: Partial<User>) {
+    const idx = this.users.findIndex(u => u.id === userId);
+    if (idx !== -1) {
+      this.users[idx] = {
+        ...this.users[idx],
+        ...updates,
+        updated_at: new Date().toISOString(),
+      };
+      this.persistToStorage();
+      this.logAudit({
+        orgId: this.users[idx].organization_id,
+        action: 'UPDATE_USER',
+        entityType: 'users',
+        entityId: userId,
+        newValues: updates as any,
+      });
+      this.notify();
+      return this.users[idx];
+    }
+    return null;
+  }
+
+  public updateUserStatus(userId: string, is_active: boolean) {
+    return this.updateUser(userId, { is_active });
+  }
+
+  public updateUserRole(userId: string, role: AppRole) {
+    return this.updateUser(userId, { role });
+  }
+
+  public deleteUser(userId: string) {
+    const user = this.users.find(u => u.id === userId);
+    if (!user) return;
+    if (user.role === 'super_admin' && this.users.filter(u => u.role === 'super_admin').length <= 1) {
+      throw new Error('لا يمكن حذف حساب المالك الرئيسي الوحيد للنظام.');
+    }
+    this.users = this.users.filter(u => u.id !== userId);
+    this.doctors = this.doctors.filter(d => d.user_id !== userId);
+    this.persistToStorage();
+    this.logAudit({
+      orgId: user.organization_id,
+      action: 'DELETE_USER',
+      entityType: 'users',
+      entityId: userId,
+      newValues: { name: user.name_ar, email: user.email }
+    });
+    this.notify();
   }
 
   public getDoctors(orgId: string) {

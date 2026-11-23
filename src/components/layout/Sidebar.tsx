@@ -40,6 +40,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     navItems = [
       { id: 'super_admin_dashboard', label: t.nav.superAdminDashboard, icon: <ShieldCheck className="w-4 h-4 text-purple-600" /> },
       { id: 'super_admin_orgs', label: t.nav.organizations, icon: <Building2 className="w-4 h-4 text-medicore-600" /> },
+      { id: 'super_admin_users', label: t.nav.usersManagement, icon: <UserCog className="w-4 h-4 text-blue-600" /> },
       { id: 'super_admin_subscriptions', label: t.nav.subscriptions, icon: <CreditCard className="w-4 h-4 text-emerald-600" /> },
       { id: 'super_admin_analytics', label: t.nav.platformAnalytics, icon: <BarChart3 className="w-4 h-4 text-sky-600" /> },
       { id: 'super_admin_announcements', label: t.nav.systemAnnouncements, icon: <Megaphone className="w-4 h-4 text-amber-600" /> },
