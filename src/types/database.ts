@@ -163,6 +163,7 @@ export type AppRole =
 export interface User {
   id: string;
   organization_id?: string;
+  primary_branch_id?: string;
   email: string;
   phone?: string;
   name_ar: string;

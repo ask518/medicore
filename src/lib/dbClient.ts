@@ -1,5 +1,6 @@
 // ============================================================================
 // MEDICORE – Unified Multi-Tenant Database Client & Business Rule Engine
+// Clean Production Architecture: Zero Mock Defaults, Persistent Storage & Supabase Sync
 // ============================================================================
 
 import {
@@ -8,58 +9,138 @@ import {
   LaboratoryOrder, RadiologyOrder, Service, Invoice, Payment, Cashbox,
   DoctorCommission, AuditLog, SystemAnnouncement
 } from '../types/database';
-import {
-  INITIAL_PLANS, INITIAL_ORGS, INITIAL_SUBSCRIPTIONS, INITIAL_BRANCHES,
-  INITIAL_USERS, INITIAL_DOCTORS, INITIAL_PATIENTS, INITIAL_APPOINTMENTS,
-  INITIAL_CONSULTATIONS, INITIAL_ANATOMICAL_FINDINGS, INITIAL_PRESCRIPTIONS,
-  INITIAL_SERVICES, INITIAL_INVOICES, INITIAL_PAYMENTS, INITIAL_CASHBOXES,
-  INITIAL_COMMISSIONS, INITIAL_AUDIT_LOGS, INITIAL_ANNOUNCEMENTS, INITIAL_RAD_ORDERS
-} from './mockData';
+import { INITIAL_PLANS, INITIAL_USERS, INITIAL_ANNOUNCEMENTS } from './mockData';
+import { supabase } from './supabase';
 
 type Listener = () => void;
 
 class MultiTenantDatabase {
   private plans: SubscriptionPlan[] = [...INITIAL_PLANS];
-  private orgs: Organization[] = [...INITIAL_ORGS];
-  private subs: Subscription[] = [...INITIAL_SUBSCRIPTIONS];
-  private branches: Branch[] = [...INITIAL_BRANCHES];
-  private users: User[] = [...INITIAL_USERS];
-  private doctors: Doctor[] = [...INITIAL_DOCTORS];
-  private patients: Patient[] = [...INITIAL_PATIENTS];
-  private appointments: Appointment[] = [...INITIAL_APPOINTMENTS];
-  private consultations: Consultation[] = [...INITIAL_CONSULTATIONS];
-  private findings: AnatomicalFinding[] = [...INITIAL_ANATOMICAL_FINDINGS];
-  private prescriptions: Prescription[] = [...INITIAL_PRESCRIPTIONS];
+  private orgs: Organization[] = [];
+  private subs: Subscription[] = [];
+  private branches: Branch[] = [];
+  private users: User[] = INITIAL_USERS.filter(u => u.role === 'super_admin');
+  private doctors: Doctor[] = [];
+  private patients: Patient[] = [];
+  private appointments: Appointment[] = [];
+  private consultations: Consultation[] = [];
+  private findings: AnatomicalFinding[] = [];
+  private prescriptions: Prescription[] = [];
   private labOrders: LaboratoryOrder[] = [];
-  private radOrders: RadiologyOrder[] = [...INITIAL_RAD_ORDERS];
-  private services: Service[] = [...INITIAL_SERVICES];
-  private invoices: Invoice[] = [...INITIAL_INVOICES];
-  private payments: Payment[] = [...INITIAL_PAYMENTS];
-  private cashboxes: Cashbox[] = [...INITIAL_CASHBOXES];
-  private commissions: DoctorCommission[] = [...INITIAL_COMMISSIONS];
-  private auditLogs: AuditLog[] = [...INITIAL_AUDIT_LOGS];
+  private radOrders: RadiologyOrder[] = [];
+  private services: Service[] = [];
+  private invoices: Invoice[] = [];
+  private payments: Payment[] = [];
+  private cashboxes: Cashbox[] = [];
+  private commissions: DoctorCommission[] = [];
+  private auditLogs: AuditLog[] = [];
   private announcements: SystemAnnouncement[] = [...INITIAL_ANNOUNCEMENTS];
 
   private listeners: Set<Listener> = new Set();
 
   constructor() {
-    if (typeof window !== 'undefined' && localStorage.getItem('medicore_demo_purged') === 'true') {
-      this.orgs = [];
-      this.subs = [];
-      this.branches = [];
-      this.users = INITIAL_USERS.filter(u => u.role === 'super_admin');
-      this.doctors = [];
-      this.patients = [];
-      this.appointments = [];
-      this.consultations = [];
-      this.findings = [];
-      this.prescriptions = [];
-      this.labOrders = [];
-      this.radOrders = [];
-      this.invoices = [];
-      this.payments = [];
-      this.cashboxes = [];
-      this.commissions = [];
+    this.loadFromStorage();
+    if (typeof window !== 'undefined') {
+      setTimeout(() => this.hydrateFromSupabase(), 500);
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // Persistence Engine (LocalStorage + Supabase Cloud Sync)
+  // --------------------------------------------------------------------------
+  private loadFromStorage() {
+    if (typeof window === 'undefined') return;
+    try {
+      const storedOrgs = localStorage.getItem('medicore_prod_orgs');
+      if (storedOrgs) {
+        this.orgs = JSON.parse(storedOrgs);
+        this.subs = JSON.parse(localStorage.getItem('medicore_prod_subs') || '[]');
+        this.branches = JSON.parse(localStorage.getItem('medicore_prod_branches') || '[]');
+        const storedUsers = JSON.parse(localStorage.getItem('medicore_prod_users') || '[]');
+        const superAdmin = INITIAL_USERS.find(u => u.role === 'super_admin');
+        const nonSuper = storedUsers.filter((u: User) => u.role !== 'super_admin');
+        this.users = superAdmin ? [superAdmin, ...nonSuper] : storedUsers;
+        this.doctors = JSON.parse(localStorage.getItem('medicore_prod_doctors') || '[]');
+        this.patients = JSON.parse(localStorage.getItem('medicore_prod_patients') || '[]');
+        this.appointments = JSON.parse(localStorage.getItem('medicore_prod_appointments') || '[]');
+        this.consultations = JSON.parse(localStorage.getItem('medicore_prod_consultations') || '[]');
+        this.findings = JSON.parse(localStorage.getItem('medicore_prod_findings') || '[]');
+        this.prescriptions = JSON.parse(localStorage.getItem('medicore_prod_prescriptions') || '[]');
+        this.invoices = JSON.parse(localStorage.getItem('medicore_prod_invoices') || '[]');
+        this.payments = JSON.parse(localStorage.getItem('medicore_prod_payments') || '[]');
+        this.cashboxes = JSON.parse(localStorage.getItem('medicore_prod_cashboxes') || '[]');
+        this.commissions = JSON.parse(localStorage.getItem('medicore_prod_commissions') || '[]');
+        const storedPlans = localStorage.getItem('medicore_prod_plans');
+        if (storedPlans) this.plans = JSON.parse(storedPlans);
+        const storedLogs = localStorage.getItem('medicore_prod_audit');
+        if (storedLogs) this.auditLogs = JSON.parse(storedLogs);
+      } else {
+        // Pure Clean Production Default (Zero Mock Data)
+        this.orgs = [];
+        this.subs = [];
+        this.branches = [];
+        this.users = INITIAL_USERS.filter(u => u.role === 'super_admin');
+        this.doctors = [];
+        this.patients = [];
+        this.appointments = [];
+        this.consultations = [];
+        this.findings = [];
+        this.prescriptions = [];
+        this.invoices = [];
+        this.payments = [];
+        this.cashboxes = [];
+        this.commissions = [];
+        this.auditLogs = [];
+      }
+    } catch (e) {
+      console.warn('MEDICORE: Error loading persisted storage', e);
+    }
+  }
+
+  public persistToStorage() {
+    if (typeof window === 'undefined') return;
+    try {
+      localStorage.setItem('medicore_prod_orgs', JSON.stringify(this.orgs));
+      localStorage.setItem('medicore_prod_subs', JSON.stringify(this.subs));
+      localStorage.setItem('medicore_prod_branches', JSON.stringify(this.branches));
+      localStorage.setItem('medicore_prod_users', JSON.stringify(this.users));
+      localStorage.setItem('medicore_prod_doctors', JSON.stringify(this.doctors));
+      localStorage.setItem('medicore_prod_patients', JSON.stringify(this.patients));
+      localStorage.setItem('medicore_prod_appointments', JSON.stringify(this.appointments));
+      localStorage.setItem('medicore_prod_consultations', JSON.stringify(this.consultations));
+      localStorage.setItem('medicore_prod_findings', JSON.stringify(this.findings));
+      localStorage.setItem('medicore_prod_prescriptions', JSON.stringify(this.prescriptions));
+      localStorage.setItem('medicore_prod_invoices', JSON.stringify(this.invoices));
+      localStorage.setItem('medicore_prod_payments', JSON.stringify(this.payments));
+      localStorage.setItem('medicore_prod_cashboxes', JSON.stringify(this.cashboxes));
+      localStorage.setItem('medicore_prod_commissions', JSON.stringify(this.commissions));
+      localStorage.setItem('medicore_prod_plans', JSON.stringify(this.plans));
+      localStorage.setItem('medicore_prod_audit', JSON.stringify(this.auditLogs.slice(0, 100)));
+    } catch (e) {
+      console.warn('MEDICORE: Error writing to storage', e);
+    }
+  }
+
+  private async hydrateFromSupabase() {
+    if (!supabase) return;
+    try {
+      const { data: orgsData, error: orgsErr } = await supabase.from('organizations').select('*');
+      if (!orgsErr && orgsData && orgsData.length > 0) {
+        let changed = false;
+        for (const remoteOrg of orgsData) {
+          const idx = this.orgs.findIndex(o => o.id === remoteOrg.id);
+          if (idx === -1) {
+            this.orgs.push(remoteOrg);
+            changed = true;
+          }
+        }
+        if (changed) {
+          this.persistToStorage();
+          this.notify();
+        }
+      }
+    } catch (err) {
+      console.info('MEDICORE: Supabase sync deferred:', err);
     }
   }
 
@@ -79,44 +160,18 @@ class MultiTenantDatabase {
     this.subs = [];
     this.doctors = [];
     this.users = INITIAL_USERS.filter(u => u.role === 'super_admin');
+    this.auditLogs = [];
+    this.persistToStorage();
     if (typeof window !== 'undefined') {
-      localStorage.setItem('medicore_demo_purged', 'true');
       localStorage.setItem('medicore_user_id', 'user-super-admin');
     }
     this.logAudit({
-      action: 'PURGE_DEMO_DATA',
+      action: 'PURGE_SYSTEM_DATA',
       entityType: 'system',
       entityId: 'global',
-      newValues: { message: 'All demo and simulation fixtures purged. Platform is running in pure production mode.' }
+      newValues: { message: 'Database reset to pure clean production state.' }
     });
     this.notify();
-  }
-
-  public restoreDemoData() {
-    if (typeof window !== 'undefined') {
-      localStorage.removeItem('medicore_demo_purged');
-    }
-    this.orgs = [...INITIAL_ORGS];
-    this.subs = [...INITIAL_SUBSCRIPTIONS];
-    this.branches = [...INITIAL_BRANCHES];
-    this.users = [...INITIAL_USERS];
-    this.doctors = [...INITIAL_DOCTORS];
-    this.patients = [...INITIAL_PATIENTS];
-    this.appointments = [...INITIAL_APPOINTMENTS];
-    this.consultations = [...INITIAL_CONSULTATIONS];
-    this.findings = [...INITIAL_ANATOMICAL_FINDINGS];
-    this.prescriptions = [...INITIAL_PRESCRIPTIONS];
-    this.radOrders = [...INITIAL_RAD_ORDERS];
-    this.services = [...INITIAL_SERVICES];
-    this.invoices = [...INITIAL_INVOICES];
-    this.payments = [...INITIAL_PAYMENTS];
-    this.cashboxes = [...INITIAL_CASHBOXES];
-    this.commissions = [...INITIAL_COMMISSIONS];
-    this.notify();
-  }
-
-  public isDemoPurged(): boolean {
-    return typeof window !== 'undefined' && localStorage.getItem('medicore_demo_purged') === 'true';
   }
 
   public subscribe(listener: Listener) {
@@ -149,7 +204,7 @@ class MultiTenantDatabase {
       organization_id: params.orgId,
       branch_id: params.branchId,
       user_id: params.userId,
-      user_name: params.userName || 'System',
+      user_name: params.userName || 'System Admin',
       action: params.action,
       entity_type: params.entityType,
       entity_id: params.entityId,
@@ -158,6 +213,7 @@ class MultiTenantDatabase {
       created_at: new Date().toISOString(),
     };
     this.auditLogs.unshift(entry);
+    this.persistToStorage();
     this.notify();
     return entry;
   }
@@ -182,6 +238,7 @@ class MultiTenantDatabase {
     const idx = this.plans.findIndex(p => p.id === id);
     if (idx !== -1) {
       this.plans[idx] = { ...this.plans[idx], ...updates, updated_at: new Date().toISOString() };
+      this.persistToStorage();
       this.notify();
       return this.plans[idx];
     }
@@ -199,7 +256,16 @@ class MultiTenantDatabase {
     return this.orgs.find(o => o.id === id);
   }
 
-  public createOrganization(data: Omit<Organization, 'id' | 'storage_consumed_mb' | 'created_at' | 'updated_at'>, planSlug = 'starter') {
+  public createOrganization(
+    data: Omit<Organization, 'id' | 'storage_consumed_mb' | 'created_at' | 'updated_at'>,
+    planSlug = 'starter',
+    adminDetails?: {
+      name_ar: string;
+      name_en?: string;
+      email: string;
+      phone?: string;
+    }
+  ) {
     const orgId = `org-${Date.now()}`;
     const newOrg: Organization = {
       ...data,
@@ -223,7 +289,7 @@ class MultiTenantDatabase {
       current_period_start: new Date().toISOString(),
       current_period_end: new Date(Date.now() + 30 * 86400000).toISOString(),
       cancel_at_period_end: false,
-      payment_method: 'manual_approval',
+      payment_method: 'bank_transfer',
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
       plan: plan
@@ -248,7 +314,7 @@ class MultiTenantDatabase {
     };
     this.branches.push(branch);
 
-    // Create cashbox
+    // Create initial cashbox
     const cashbox: Cashbox = {
       id: `cb-${Date.now()}`,
       organization_id: orgId,
@@ -259,6 +325,66 @@ class MultiTenantDatabase {
     };
     this.cashboxes.push(cashbox);
 
+    // Create clinic owner administrator user
+    let clinicAdmin: User;
+    if (adminDetails && adminDetails.email) {
+      clinicAdmin = {
+        id: `user-${Date.now()}`,
+        organization_id: orgId,
+        primary_branch_id: branch.id,
+        role: 'org_owner',
+        name_ar: adminDetails.name_ar,
+        name_en: adminDetails.name_en || adminDetails.name_ar,
+        email: adminDetails.email,
+        phone: adminDetails.phone || newOrg.phone,
+        is_active: true,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      this.users.push(clinicAdmin);
+    } else {
+      // Default clinic manager
+      clinicAdmin = {
+        id: `user-${Date.now()}`,
+        organization_id: orgId,
+        primary_branch_id: branch.id,
+        role: 'org_owner',
+        name_ar: `مدير ${newOrg.name_ar}`,
+        name_en: `Manager ${newOrg.name_en}`,
+        email: newOrg.email,
+        phone: newOrg.phone,
+        is_active: true,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      this.users.push(clinicAdmin);
+    }
+
+    // Persist changes locally
+    this.persistToStorage();
+
+    // Async sync to Supabase Cloud
+    if (supabase) {
+      supabase.from('organizations').insert({
+        id: newOrg.id,
+        name_ar: newOrg.name_ar,
+        name_en: newOrg.name_en,
+        slug: newOrg.slug,
+        facility_type: newOrg.facility_type,
+        status: newOrg.status,
+        email: newOrg.email,
+        phone: newOrg.phone,
+        country: newOrg.country,
+        city: newOrg.city,
+        address: newOrg.address,
+        timezone: newOrg.timezone,
+        default_currency: newOrg.default_currency,
+        is_enterprise_dedicated: newOrg.is_enterprise_dedicated,
+      }).then(({ error }) => {
+        if (error) console.info('MEDICORE: Cloud org push notice:', error.message);
+      });
+    }
+
     this.logAudit({
       orgId,
       action: 'REGISTER_ORG',
@@ -268,7 +394,33 @@ class MultiTenantDatabase {
     });
 
     this.notify();
-    return { org: newOrg, subscription: sub, branch };
+    return { org: newOrg, subscription: sub, branch, clinicAdmin };
+  }
+
+  public deleteOrganization(orgId: string) {
+    this.orgs = this.orgs.filter(o => o.id !== orgId);
+    this.subs = this.subs.filter(s => s.organization_id !== orgId);
+    this.branches = this.branches.filter(b => b.organization_id !== orgId);
+    this.users = this.users.filter(u => u.organization_id !== orgId || u.role === 'super_admin');
+    this.doctors = this.doctors.filter(d => d.organization_id !== orgId);
+    this.patients = this.patients.filter(p => p.organization_id !== orgId);
+    this.appointments = this.appointments.filter(a => a.organization_id !== orgId);
+    this.consultations = this.consultations.filter(c => c.organization_id !== orgId);
+    this.findings = this.findings.filter(f => f.organization_id !== orgId);
+    this.prescriptions = this.prescriptions.filter(p => p.organization_id !== orgId);
+    this.invoices = this.invoices.filter(i => i.organization_id !== orgId);
+    this.payments = this.payments.filter(p => p.organization_id !== orgId);
+    this.cashboxes = this.cashboxes.filter(c => c.organization_id !== orgId);
+    this.commissions = this.commissions.filter(c => c.organization_id !== orgId);
+
+    this.persistToStorage();
+    this.logAudit({
+      action: 'DELETE_ORGANIZATION',
+      entityType: 'organizations',
+      entityId: orgId,
+      newValues: { message: `Organization ${orgId} deleted.` }
+    });
+    this.notify();
   }
 
   public updateOrganizationStatus(orgId: string, status: Organization['status']) {
@@ -276,6 +428,7 @@ class MultiTenantDatabase {
     if (org) {
       org.status = status;
       org.updated_at = new Date().toISOString();
+      this.persistToStorage();
       this.logAudit({ orgId, action: 'UPDATE_STATUS', entityType: 'organizations', entityId: orgId, newValues: { status } });
       this.notify();
     }
@@ -307,6 +460,7 @@ class MultiTenantDatabase {
       updated_at: new Date().toISOString(),
     };
     this.branches.push(branch);
+    this.persistToStorage();
     this.logAudit({ orgId, branchId: branch.id, action: 'CREATE_BRANCH', entityType: 'branches', entityId: branch.id });
     this.notify();
     return branch;
@@ -322,6 +476,52 @@ class MultiTenantDatabase {
 
   public getUserById(id: string) {
     return this.users.find(u => u.id === id);
+  }
+
+  public createStaffMember(
+    orgId: string,
+    userData: Omit<User, 'id' | 'organization_id' | 'created_at' | 'updated_at'>,
+    doctorDetails?: {
+      specialty_code: string;
+      specialty_title_ar: string;
+      specialty_title_en: string;
+      commission_rate?: number;
+      consultation_fee?: number;
+      follow_up_fee?: number;
+    }
+  ) {
+    const user: User = {
+      ...userData,
+      id: `user-${Date.now()}`,
+      organization_id: orgId,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+    this.users.push(user);
+
+    if (doctorDetails || ['doctor', 'assistant_doctor'].includes(user.role)) {
+      const doc: Doctor = {
+        id: `doc-${Date.now()}`,
+        organization_id: orgId,
+        user_id: user.id,
+        specialty_code: doctorDetails?.specialty_code || 'orthopedics',
+        specialty_title_ar: doctorDetails?.specialty_title_ar || 'جراحة العظام والمفاصل',
+        specialty_title_en: doctorDetails?.specialty_title_en || 'Orthopedics & Joint Surgery',
+        commission_type: 'percentage',
+        commission_rate: doctorDetails?.commission_rate || 20,
+        consultation_fee: doctorDetails?.consultation_fee || 300,
+        follow_up_fee: doctorDetails?.follow_up_fee || 150,
+        slot_duration_minutes: 20,
+        is_active: true,
+        created_at: new Date().toISOString(),
+      };
+      this.doctors.push(doc);
+    }
+
+    this.persistToStorage();
+    this.logAudit({ orgId, action: 'CREATE_STAFF', entityType: 'users', entityId: user.id });
+    this.notify();
+    return user;
   }
 
   public getDoctors(orgId: string) {
@@ -371,6 +571,7 @@ class MultiTenantDatabase {
       updated_at: new Date().toISOString(),
     };
     this.patients.unshift(newPatient);
+    this.persistToStorage();
     this.logAudit({ orgId, action: 'CREATE_PATIENT', entityType: 'patients', entityId: newPatient.id, newValues: { mrn, name: `${data.first_name_ar} ${data.last_name_ar}` } });
     this.notify();
     return newPatient;
@@ -399,7 +600,6 @@ class MultiTenantDatabase {
   }
 
   public createAppointment(orgId: string, data: Omit<Appointment, 'id' | 'organization_id' | 'appointment_number' | 'created_at' | 'updated_at'>) {
-    // DOUBLE-BOOKING PREVENTION GUARD (Healthcare Invariant)
     const activeConflict = this.appointments.find(apt => 
       apt.doctor_id === data.doctor_id &&
       apt.appointment_date === data.appointment_date &&
@@ -424,6 +624,7 @@ class MultiTenantDatabase {
     };
 
     this.appointments.push(newApt);
+    this.persistToStorage();
     this.logAudit({ orgId, branchId: data.branch_id, action: 'BOOK_APPOINTMENT', entityType: 'appointments', entityId: newApt.id });
     this.notify();
     return newApt;
@@ -438,6 +639,7 @@ class MultiTenantDatabase {
       if (status === 'completed') apt.completed_at = new Date().toISOString();
       if (extra) Object.assign(apt, extra);
       apt.updated_at = new Date().toISOString();
+      this.persistToStorage();
       this.logAudit({ orgId: apt.organization_id, branchId: apt.branch_id, action: 'UPDATE_STATUS', entityType: 'appointments', entityId: id, newValues: { status } });
       this.notify();
     }
@@ -472,6 +674,7 @@ class MultiTenantDatabase {
       this.updateAppointmentStatus(data.appointment_id, 'completed');
     }
 
+    this.persistToStorage();
     this.logAudit({
       orgId,
       branchId: data.branch_id,
@@ -502,6 +705,7 @@ class MultiTenantDatabase {
       this.findings.push(f);
       return f;
     });
+    this.persistToStorage();
     this.notify();
     return saved;
   }
@@ -531,6 +735,7 @@ class MultiTenantDatabase {
       created_at: new Date().toISOString(),
     };
     this.prescriptions.unshift(newRx);
+    this.persistToStorage();
     this.logAudit({ orgId, branchId: data.branch_id, action: 'CREATE_PRESCRIPTION', entityType: 'prescriptions', entityId: newRx.id });
     this.notify();
     return newRx;
@@ -559,6 +764,7 @@ class MultiTenantDatabase {
       updated_at: new Date().toISOString(),
     };
     this.radOrders.unshift(newRad);
+    this.persistToStorage();
     this.notify();
     return newRad;
   }
@@ -597,6 +803,7 @@ class MultiTenantDatabase {
       updated_at: new Date().toISOString(),
     };
     this.invoices.unshift(newInv);
+    this.persistToStorage();
     this.logAudit({ orgId, branchId: data.branch_id, action: 'CREATE_INVOICE', entityType: 'invoices', entityId: newInv.id });
     this.notify();
     return newInv;
@@ -651,6 +858,7 @@ class MultiTenantDatabase {
       }
     }
 
+    this.persistToStorage();
     this.logAudit({ orgId, branchId: data.branch_id, action: 'RECORD_PAYMENT', entityType: 'payments', entityId: newPay.id, newValues: { amount: data.amount, receipt: recNumber } });
     this.notify();
     return newPay;

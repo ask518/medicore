@@ -1,16 +1,16 @@
 // ============================================================================
 // MEDICORE – Top Navigation Bar
-// Multi-Tenant Branch Switcher, Fast Role/Identity Switcher & Language Toggle
+// Multi-Tenant Branch Switcher, Super Admin Quick-Return & Identity Manager
 // ============================================================================
 
 import React, { useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
+import { dbClient } from '../../lib/dbClient';
 import { 
   Building2, MapPin, Globe, UserCheck, Shield, ChevronDown,
-  LogOut, Bell, Menu, Sparkles
+  LogOut, Menu, ArrowRightLeft, Sparkles
 } from 'lucide-react';
-import { INITIAL_USERS } from '../../lib/mockData';
 
 interface NavbarProps {
   onToggleMobileSidebar: () => void;
@@ -28,6 +28,8 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleMobileSidebar }) => {
   const toggleLanguage = () => {
     setLocale(locale === 'ar' ? 'en' : 'ar');
   };
+
+  const orgUsers = organization ? dbClient.getUsers(organization.id) : [];
 
   return (
     <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200 h-16 flex items-center justify-between px-4 sm:px-6 shadow-2xs">
@@ -59,7 +61,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleMobileSidebar }) => {
               )}
             </div>
             <p className="text-[11px] text-slate-500 font-medium line-clamp-1">
-              {organization ? organization[locale === 'ar' ? 'name_ar' : 'name_en'] : t.superAdmin.title}
+              {organization ? organization[locale === 'ar' ? 'name_ar' : 'name_en'] : (locale === 'ar' ? 'لوحة مالك المنصة' : 'Platform Owner Console')}
             </p>
           </div>
         </div>
@@ -67,7 +69,21 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleMobileSidebar }) => {
 
       {/* Center / Right controls */}
       <div className="flex items-center gap-2 sm:gap-3">
-        {/* Branch Selector (For multi-branch clinics) */}
+        {/* Quick Return to Super Admin Button (When Managing a Clinic) */}
+        {organization && (
+          <button
+            type="button"
+            onClick={() => switchRole('user-super-admin')}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-purple-900 to-indigo-900 hover:from-purple-800 hover:to-indigo-800 text-purple-100 text-xs font-bold shadow-xs border border-purple-700/50 transition-all"
+            title={locale === 'ar' ? 'الرجوع للوحة تحكم مالك المنصة وإدارة كافة المنشآت' : 'Return to Super Admin Dashboard'}
+          >
+            <Shield className="w-3.5 h-3.5 text-purple-300" />
+            <span className="hidden sm:inline">{locale === 'ar' ? '👑 العودة لإدارة المنصة' : '👑 Super Admin'}</span>
+            <span className="sm:hidden">{locale === 'ar' ? '👑 المنصة' : 'Admin'}</span>
+          </button>
+        )}
+
+        {/* Branch Selector (For active clinic with multiple branches) */}
         {organization && availableBranches.length > 0 && (
           <div className="relative">
             <button
@@ -119,7 +135,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleMobileSidebar }) => {
             onClick={() => setShowRoleMenu(!showRoleMenu)}
             className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-bold transition-all border ${
               isSuperAdmin 
-                ? 'bg-purple-950/80 text-purple-200 border-purple-500/30 hover:bg-purple-900/80 shadow-xs' 
+                ? 'bg-purple-950/90 text-purple-200 border-purple-500/30 hover:bg-purple-900/90 shadow-xs' 
                 : 'bg-slate-100 hover:bg-slate-200 text-slate-800 border-slate-200'
             }`}
           >
@@ -143,7 +159,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleMobileSidebar }) => {
 
           {showRoleMenu && (
             <div className="absolute end-0 mt-1.5 w-72 bg-white rounded-2xl shadow-2xl border border-slate-200 py-2 z-50 animate-scale-in">
-              <div className="px-3.5 py-2 border-b border-slate-100 flex items-center justify-between">
+              <div className="px-3.5 py-2.5 border-b border-slate-100 flex items-center justify-between">
                 <div>
                   <div className="font-bold text-xs text-slate-900">
                     {user ? user[locale === 'ar' ? 'name_ar' : 'name_en'] : 'Super Admin'}
@@ -157,51 +173,55 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleMobileSidebar }) => {
                 )}
               </div>
 
-              {/* Quick Actions */}
-              <div className="p-2 space-y-1 border-b border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => {
-                    switchRole('user-super-admin');
-                    setShowRoleMenu(false);
-                  }}
-                  className="w-full text-start px-3 py-2 text-xs font-bold text-purple-700 hover:bg-purple-50 rounded-xl flex items-center gap-2 transition-colors"
-                >
-                  <Shield className="w-4 h-4 text-purple-600" />
-                  <span>{locale === 'ar' ? 'لوحة تحكم مالك المنصة (Super Admin)' : 'Super Admin Dashboard'}</span>
-                </button>
-              </div>
-
-              {/* Sandbox Roles (Visible only when not purged or for testing) */}
-              <div className="max-h-60 overflow-y-auto divide-y divide-slate-100">
-                <div className="px-3 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider bg-slate-50">
-                  {locale === 'ar' ? 'تبديل الحساب / الأدوار' : 'Switch Identity / Roles'}
+              {/* Quick Action: Back to Super Admin */}
+              {!isSuperAdmin && (
+                <div className="p-2 border-b border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      switchRole('user-super-admin');
+                      setShowRoleMenu(false);
+                    }}
+                    className="w-full text-start px-3 py-2 text-xs font-bold text-purple-700 hover:bg-purple-50 rounded-xl flex items-center gap-2 transition-colors"
+                  >
+                    <Shield className="w-4 h-4 text-purple-600" />
+                    <span>{locale === 'ar' ? '👑 العودة للوحة مالك المنصة' : '👑 Return to Super Admin'}</span>
+                  </button>
                 </div>
-                {INITIAL_USERS.map(u => {
-                  const isCurrent = user?.id === u.id;
-                  return (
-                    <button
-                      key={u.id}
-                      type="button"
-                      onClick={() => {
-                        switchRole(u.id);
-                        setShowRoleMenu(false);
-                      }}
-                      className={`w-full text-start p-2.5 text-xs flex flex-col gap-0.5 hover:bg-slate-50 transition-colors ${
-                        isCurrent ? 'bg-medicore-50/80 text-medicore-800 font-bold' : 'text-slate-800'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="font-bold">{u[locale === 'ar' ? 'name_ar' : 'name_en']}</span>
-                        <span className="text-[10px] font-semibold px-1.5 py-0.2 rounded-full bg-slate-100 text-slate-600">
-                          {t.roles[u.role] || u.role}
-                        </span>
-                      </div>
-                      <span className="text-[11px] text-slate-500">{u.email}</span>
-                    </button>
-                  );
-                })}
-              </div>
+              )}
+
+              {/* Organization Staff Switcher (if multiple staff in this facility) */}
+              {orgUsers.length > 1 && (
+                <div className="max-h-56 overflow-y-auto divide-y divide-slate-100">
+                  <div className="px-3 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider bg-slate-50">
+                    {locale === 'ar' ? 'فريق عمل المنشأة' : 'Facility Staff'}
+                  </div>
+                  {orgUsers.map(u => {
+                    const isCurrent = user?.id === u.id;
+                    return (
+                      <button
+                        key={u.id}
+                        type="button"
+                        onClick={() => {
+                          switchRole(u.id);
+                          setShowRoleMenu(false);
+                        }}
+                        className={`w-full text-start p-2.5 text-xs flex flex-col gap-0.5 hover:bg-slate-50 transition-colors ${
+                          isCurrent ? 'bg-medicore-50/80 text-medicore-800 font-bold' : 'text-slate-800'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold">{u[locale === 'ar' ? 'name_ar' : 'name_en']}</span>
+                          <span className="text-[10px] font-semibold px-1.5 py-0.2 rounded-full bg-slate-100 text-slate-600">
+                            {t.roles[u.role] || u.role}
+                          </span>
+                        </div>
+                        <span className="text-[11px] text-slate-500">{u.email}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
 
               <div className="p-1 border-t border-slate-100">
                 <button
