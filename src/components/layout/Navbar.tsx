@@ -112,31 +112,71 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleMobileSidebar }) => {
           </div>
         )}
 
-        {/* Fast Role / Identity Switcher (Testing & Demonstration Bar) */}
+        {/* User Identity & Profile Menu */}
         <div className="relative">
           <button
             type="button"
             onClick={() => setShowRoleMenu(!showRoleMenu)}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-xs font-bold text-slate-800 transition-colors border border-slate-200"
-            title="تبديل الهوية لاختبار الصلاحيات وعزل المستأجرين"
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-bold transition-all border ${
+              isSuperAdmin 
+                ? 'bg-purple-950/80 text-purple-200 border-purple-500/30 hover:bg-purple-900/80 shadow-xs' 
+                : 'bg-slate-100 hover:bg-slate-200 text-slate-800 border-slate-200'
+            }`}
           >
-            <UserCheck className="w-3.5 h-3.5 text-emerald-600" />
+            {isSuperAdmin ? (
+              <Shield className="w-3.5 h-3.5 text-purple-400" />
+            ) : (
+              <UserCheck className="w-3.5 h-3.5 text-emerald-600" />
+            )}
             <span className="hidden md:inline max-w-[140px] truncate">
-              {user ? user[locale === 'ar' ? 'name_ar' : 'name_en'] : 'تسجيل دخول'}
+              {user ? user[locale === 'ar' ? 'name_ar' : 'name_en'] : (locale === 'ar' ? 'مالك المنصة' : 'Super Admin')}
             </span>
-            <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-white text-slate-700 border border-slate-200">
-              {user ? t.roles[user.role] || user.role : ''}
+            <span className={`text-[10px] px-1.5 py-0.2 rounded-full border ${
+              isSuperAdmin 
+                ? 'bg-purple-800 text-purple-100 border-purple-600 font-black' 
+                : 'bg-white text-slate-700 border-slate-200'
+            }`}>
+              {isSuperAdmin ? (locale === 'ar' ? 'مالك المنصة' : 'Super Admin') : (user ? t.roles[user.role] || user.role : '')}
             </span>
-            <ChevronDown className="w-3 h-3 text-slate-500" />
+            <ChevronDown className="w-3 h-3 opacity-60" />
           </button>
 
           {showRoleMenu && (
             <div className="absolute end-0 mt-1.5 w-72 bg-white rounded-2xl shadow-2xl border border-slate-200 py-2 z-50 animate-scale-in">
-              <div className="px-3.5 py-1.5 text-[11px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100 flex items-center justify-between">
-                <span>{locale === 'ar' ? 'تبديل الدور والمنشأة (Audit Demo)' : 'Switch Identity / Tenant'}</span>
-                <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+              <div className="px-3.5 py-2 border-b border-slate-100 flex items-center justify-between">
+                <div>
+                  <div className="font-bold text-xs text-slate-900">
+                    {user ? user[locale === 'ar' ? 'name_ar' : 'name_en'] : 'Super Admin'}
+                  </div>
+                  <div className="text-[11px] text-slate-500">{user?.email || 'admin@medicore.cloud'}</div>
+                </div>
+                {isSuperAdmin && (
+                  <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-purple-100 text-purple-800">
+                    OWNER
+                  </span>
+                )}
               </div>
-              <div className="max-h-80 overflow-y-auto divide-y divide-slate-100">
+
+              {/* Quick Actions */}
+              <div className="p-2 space-y-1 border-b border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => {
+                    switchRole('user-super-admin');
+                    setShowRoleMenu(false);
+                  }}
+                  className="w-full text-start px-3 py-2 text-xs font-bold text-purple-700 hover:bg-purple-50 rounded-xl flex items-center gap-2 transition-colors"
+                >
+                  <Shield className="w-4 h-4 text-purple-600" />
+                  <span>{locale === 'ar' ? 'لوحة تحكم مالك المنصة (Super Admin)' : 'Super Admin Dashboard'}</span>
+                </button>
+              </div>
+
+              {/* Sandbox Roles (Visible only when not purged or for testing) */}
+              <div className="max-h-60 overflow-y-auto divide-y divide-slate-100">
+                <div className="px-3 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider bg-slate-50">
+                  {locale === 'ar' ? 'تبديل الحساب / الأدوار' : 'Switch Identity / Roles'}
+                </div>
                 {INITIAL_USERS.map(u => {
                   const isCurrent = user?.id === u.id;
                   return (
@@ -161,6 +201,20 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleMobileSidebar }) => {
                     </button>
                   );
                 })}
+              </div>
+
+              <div className="p-1 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => {
+                    logout();
+                    setShowRoleMenu(false);
+                  }}
+                  className="w-full text-start px-3 py-2 text-xs font-bold text-rose-600 hover:bg-rose-50 rounded-xl flex items-center gap-2 transition-colors"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                  <span>{t.nav.logout}</span>
+                </button>
               </div>
             </div>
           )}

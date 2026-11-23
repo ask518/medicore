@@ -29,9 +29,9 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  // Default to Dr. Assem (Org Owner of Al-Noor Medical Complex) or Super Admin
+  // Default to Super Admin (Platform Owner)
   const [currentUserId, setCurrentUserId] = useState<string>(() => {
-    return localStorage.getItem('medicore_user_id') || 'user-alnoor-owner';
+    return localStorage.getItem('medicore_user_id') || 'user-super-admin';
   });
 
   const [activeBranchId, setActiveBranchId] = useState<string>(() => {

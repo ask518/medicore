@@ -42,6 +42,83 @@ class MultiTenantDatabase {
 
   private listeners: Set<Listener> = new Set();
 
+  constructor() {
+    if (typeof window !== 'undefined' && localStorage.getItem('medicore_demo_purged') === 'true') {
+      this.orgs = [];
+      this.subs = [];
+      this.branches = [];
+      this.users = INITIAL_USERS.filter(u => u.role === 'super_admin');
+      this.doctors = [];
+      this.patients = [];
+      this.appointments = [];
+      this.consultations = [];
+      this.findings = [];
+      this.prescriptions = [];
+      this.labOrders = [];
+      this.radOrders = [];
+      this.invoices = [];
+      this.payments = [];
+      this.cashboxes = [];
+      this.commissions = [];
+    }
+  }
+
+  public purgeAllDemoData() {
+    this.patients = [];
+    this.appointments = [];
+    this.consultations = [];
+    this.findings = [];
+    this.prescriptions = [];
+    this.labOrders = [];
+    this.radOrders = [];
+    this.invoices = [];
+    this.payments = [];
+    this.commissions = [];
+    this.orgs = [];
+    this.branches = [];
+    this.subs = [];
+    this.doctors = [];
+    this.users = INITIAL_USERS.filter(u => u.role === 'super_admin');
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('medicore_demo_purged', 'true');
+      localStorage.setItem('medicore_user_id', 'user-super-admin');
+    }
+    this.logAudit({
+      action: 'PURGE_DEMO_DATA',
+      entityType: 'system',
+      entityId: 'global',
+      newValues: { message: 'All demo and simulation fixtures purged. Platform is running in pure production mode.' }
+    });
+    this.notify();
+  }
+
+  public restoreDemoData() {
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('medicore_demo_purged');
+    }
+    this.orgs = [...INITIAL_ORGS];
+    this.subs = [...INITIAL_SUBSCRIPTIONS];
+    this.branches = [...INITIAL_BRANCHES];
+    this.users = [...INITIAL_USERS];
+    this.doctors = [...INITIAL_DOCTORS];
+    this.patients = [...INITIAL_PATIENTS];
+    this.appointments = [...INITIAL_APPOINTMENTS];
+    this.consultations = [...INITIAL_CONSULTATIONS];
+    this.findings = [...INITIAL_ANATOMICAL_FINDINGS];
+    this.prescriptions = [...INITIAL_PRESCRIPTIONS];
+    this.radOrders = [...INITIAL_RAD_ORDERS];
+    this.services = [...INITIAL_SERVICES];
+    this.invoices = [...INITIAL_INVOICES];
+    this.payments = [...INITIAL_PAYMENTS];
+    this.cashboxes = [...INITIAL_CASHBOXES];
+    this.commissions = [...INITIAL_COMMISSIONS];
+    this.notify();
+  }
+
+  public isDemoPurged(): boolean {
+    return typeof window !== 'undefined' && localStorage.getItem('medicore_demo_purged') === 'true';
+  }
+
   public subscribe(listener: Listener) {
     this.listeners.add(listener);
     return () => {

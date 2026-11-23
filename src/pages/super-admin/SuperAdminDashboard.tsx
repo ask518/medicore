@@ -10,7 +10,7 @@ import { useToast } from '../../context/ToastContext';
 import { 
   Building2, CreditCard, DollarSign, HardDrive, ShieldCheck, 
   CheckCircle, AlertTriangle, Users, Plus, Edit2, Megaphone,
-  Activity, ArrowUpRight, Lock
+  Activity, ArrowUpRight, Lock, Database, Trash2, RefreshCw, Cloud, Server
 } from 'lucide-react';
 import { SubscriptionPlan, Organization } from '../../types/database';
 
@@ -34,6 +34,23 @@ export const SuperAdminDashboard: React.FC = () => {
     return sum + (sub?.status === 'active' ? sub.amount : 0);
   }, 0);
   const arr = mrr * 12;
+
+  // Demo purge state
+  const [isPurged, setIsPurged] = useState(() => dbClient.isDemoPurged());
+
+  const handlePurgeDemo = () => {
+    if (window.confirm(locale === 'ar' ? 'هل أنت متأكد من تطهير كافة البيانات التجريبية والمحاكاة وبدء بيئة إنتاج حقيقية ونظيفة؟' : 'Are you sure you want to purge all demo data and start clean production?')) {
+      dbClient.purgeAllDemoData();
+      setIsPurged(true);
+      success(locale === 'ar' ? 'تم تطهير كافة البيانات التجريبية بنجاح. المنصة تعمل الآن في وضع الإنتاج الحقيقي النظيف.' : 'Demo data purged successfully. Platform is now running in pure production mode.');
+    }
+  };
+
+  const handleRestoreDemo = () => {
+    dbClient.restoreDemoData();
+    setIsPurged(false);
+    info(locale === 'ar' ? 'تم استعادة البيانات التجريبية للاختبار.' : 'Demo sandbox restored.');
+  };
 
   // Selected plan to edit
   const [editingPlan, setEditingPlan] = useState<SubscriptionPlan | null>(null);
@@ -120,6 +137,58 @@ export const SuperAdminDashboard: React.FC = () => {
           <Plus className="w-4 h-4" />
           <span>{t.superAdmin.registerOrg}</span>
         </button>
+      </div>
+
+      {/* Production Environment & Live Supabase Controls */}
+      <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="flex items-center gap-4">
+          <div className="w-12 h-12 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-600 flex items-center justify-center shrink-0">
+            <Cloud className="w-6 h-6" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <h3 className="font-black text-sm text-slate-900">
+                {locale === 'ar' ? 'البيئة السحابية وقاعدة البيانات الحية (Supabase Live Cloud)' : 'Supabase Live Cloud Database'}
+              </h3>
+              <span className="flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span>
+                <span>{locale === 'ar' ? 'متصل وحي (Live RLS)' : 'Connected & Live RLS'}</span>
+              </span>
+            </div>
+            <p className="text-xs font-mono text-slate-500 mt-0.5">
+              https://olfebegtdgpenrthhwbd.supabase.co
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3">
+          {isPurged ? (
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs font-bold px-3 py-1.5 rounded-xl bg-purple-50 text-purple-700 border border-purple-200 flex items-center gap-1.5">
+                <CheckCircle className="w-4 h-4 text-purple-600" />
+                <span>{locale === 'ar' ? 'وضع الإنتاج الفعلي (صفحة بيضاء نظيفة)' : 'Clean Production Mode'}</span>
+              </span>
+              <button
+                type="button"
+                onClick={handleRestoreDemo}
+                className="px-3 py-1.5 text-xs font-bold text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition-all flex items-center gap-1"
+                title="استعادة البيانات التجريبية للمعاينة"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span>{locale === 'ar' ? 'استعادة التجريبي' : 'Restore Demo'}</span>
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={handlePurgeDemo}
+              className="flex items-center gap-2 px-4 py-2.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl shadow-md shadow-rose-600/20 transition-all"
+            >
+              <Trash2 className="w-4 h-4" />
+              <span>{locale === 'ar' ? 'تطهير المحاكاة والبيانات التجريبية' : 'Purge All Demo Data'}</span>
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Metrics Row */}
