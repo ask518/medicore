@@ -51,7 +51,7 @@ const AppContent: React.FC = () => {
       case 'super_admin_subscriptions':
       case 'super_admin_analytics':
       case 'super_admin_announcements':
-        return <SuperAdminDashboard />;
+        return <SuperAdminDashboard activeTab={currentTab} onSelectTab={setCurrentTab} />;
 
       // Patient Portal
       case 'patient_portal':

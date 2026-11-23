@@ -230,6 +230,18 @@ class MultiTenantDatabase {
     return this.announcements.filter(a => a.is_active);
   }
 
+  public createAnnouncement(announcement: Omit<SystemAnnouncement, 'id' | 'created_at'>) {
+    const newA: SystemAnnouncement = {
+      ...announcement,
+      id: `ann-${Date.now()}`,
+      created_at: new Date().toISOString(),
+    };
+    this.announcements.unshift(newA);
+    this.persistToStorage();
+    this.notify();
+    return newA;
+  }
+
   public getPlans() {
     return [...this.plans];
   }
