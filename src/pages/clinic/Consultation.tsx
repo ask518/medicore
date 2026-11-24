@@ -294,7 +294,7 @@ export const Consultation: React.FC = () => {
 
     // Save consultation
     const saved = dbClient.saveConsultation(orgId, {
-      branch_id: activeBranch?.id || 'branch-alnoor-main',
+      branch_id: activeBranch?.id || dbClient.getBranches(orgId)[0]?.id || '',
       patient_id: selectedPatientId,
       doctor_id: selectedDoctorId,
       consultation_date: new Date().toISOString(),
@@ -338,7 +338,7 @@ export const Consultation: React.FC = () => {
     // Save e-Prescription if drugs exist
     if (rxItems.length > 0 && rxItems.some(it => it.drugName)) {
       dbClient.createPrescription(orgId, {
-        branch_id: activeBranch?.id || 'branch-alnoor-main',
+        branch_id: activeBranch?.id || dbClient.getBranches(orgId)[0]?.id || '',
         consultation_id: saved.id,
         patient_id: selectedPatientId,
         doctor_id: selectedDoctorId,

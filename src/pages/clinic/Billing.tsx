@@ -61,7 +61,7 @@ export const Billing: React.FC = () => {
     const net = Math.max(0, subtotal - invoiceDiscount);
 
     const created = dbClient.createInvoice(orgId, {
-      branch_id: activeBranch?.id || 'branch-alnoor-main',
+      branch_id: activeBranch?.id || dbClient.getBranches(orgId)[0]?.id || '',
       patient_id: selectedPatientId,
       doctor_id: selectedDoctorId || undefined,
       issue_date: new Date().toISOString().split('T')[0],
@@ -104,7 +104,7 @@ export const Billing: React.FC = () => {
     if (!selectedInvoiceForPayment || paymentAmount <= 0) return;
 
     const pay = dbClient.recordPayment(orgId, {
-      branch_id: activeBranch?.id || 'branch-alnoor-main',
+      branch_id: activeBranch?.id || dbClient.getBranches(orgId)[0]?.id || '',
       invoice_id: selectedInvoiceForPayment.id,
       patient_id: selectedInvoiceForPayment.patient_id,
       cashbox_id: selectedCashboxId || undefined,

@@ -25,7 +25,7 @@ export const Settings: React.FC = () => {
   const [taxNumber, setTaxNumber] = useState(organization.tax_number || '');
   const [commercialReg, setCommercialReg] = useState(organization.commercial_reg_no || '');
   const [primaryColor, setPrimaryColor] = useState('#0c87eb');
-  const [customDomain, setCustomDomain] = useState('clinic.alnoor-medical.com');
+  const [customDomain, setCustomDomain] = useState(`clinic.${organization.slug || 'medicore'}.cloud`);
 
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();

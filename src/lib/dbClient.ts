@@ -69,6 +69,7 @@ class MultiTenantDatabase {
         this.invoices = JSON.parse(localStorage.getItem('medicore_prod_invoices') || '[]');
         this.payments = JSON.parse(localStorage.getItem('medicore_prod_payments') || '[]');
         this.cashboxes = JSON.parse(localStorage.getItem('medicore_prod_cashboxes') || '[]');
+        this.services = JSON.parse(localStorage.getItem('medicore_prod_services') || '[]');
         this.commissions = JSON.parse(localStorage.getItem('medicore_prod_commissions') || '[]');
         const storedPlans = localStorage.getItem('medicore_prod_plans');
         if (storedPlans) this.plans = JSON.parse(storedPlans);
@@ -113,6 +114,7 @@ class MultiTenantDatabase {
       localStorage.setItem('medicore_prod_invoices', JSON.stringify(this.invoices));
       localStorage.setItem('medicore_prod_payments', JSON.stringify(this.payments));
       localStorage.setItem('medicore_prod_cashboxes', JSON.stringify(this.cashboxes));
+      localStorage.setItem('medicore_prod_services', JSON.stringify(this.services));
       localStorage.setItem('medicore_prod_commissions', JSON.stringify(this.commissions));
       localStorage.setItem('medicore_prod_plans', JSON.stringify(this.plans));
       localStorage.setItem('medicore_prod_audit', JSON.stringify(this.auditLogs.slice(0, 100)));

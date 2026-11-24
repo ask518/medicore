@@ -32,7 +32,7 @@ export const Radiology: React.FC = () => {
   const handleCreateRadOrder = (e: React.FormEvent) => {
     e.preventDefault();
     dbClient.createRadOrder(orgId, {
-      branch_id: activeBranch?.id || 'branch-alnoor-main',
+      branch_id: activeBranch?.id || dbClient.getBranches(orgId)[0]?.id || '',
       patient_id: patientId,
       doctor_id: doctorId,
       imaging_modality: modality,

@@ -19,6 +19,7 @@ import {
 import { SubscriptionPlan, Organization, FacilityType, AppRole, User } from '../../types/database';
 import { SpecialtyMultiSelector } from '../../components/specialties/SpecialtyMultiSelector';
 import { getSpecialtyByCode, MASTER_MEDICAL_SPECIALTIES } from '../../config/medicalSpecialties';
+import { seedRealisticHealthcareFacilities } from '../../lib/seedProductionData';
 
 interface SuperAdminDashboardProps {
   activeTab?: string;
@@ -281,6 +282,13 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
     }
   };
 
+  const handleSeedFacilities = () => {
+    const res = seedRealisticHealthcareFacilities();
+    success(locale === 'ar' 
+      ? `تم تهيئة ${res.orgsCount} منشآت طبية نموذجية و ${res.usersCount} مستخدمين و ${res.patientsCount} ملفات مرضى بنجاح!` 
+      : `Seeded ${res.orgsCount} facilities and ${res.usersCount} users!`);
+  };
+
   const getFacilityTypeName = (type: FacilityType) => {
     switch (type) {
       case 'private_clinic': return locale === 'ar' ? 'عيادة خاصة' : 'Private Clinic';
@@ -438,6 +446,15 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
         </div>
 
         <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={handleSeedFacilities}
+            className="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white text-xs font-bold shadow-xs flex items-center gap-1.5 transition-all cursor-pointer"
+            title={locale === 'ar' ? 'تهيئة نماذج منشآت وفئات واقعية شاملة' : 'Seed Realistic Facilities'}
+          >
+            <Sparkles className="w-3.5 h-3.5 text-emerald-100" />
+            <span>{locale === 'ar' ? '🌱 تجهيز منشآت نموذجية' : 'Seed Facilities'}</span>
+          </button>
           <span className="text-xs font-bold px-3 py-1.5 rounded-xl bg-purple-50 text-purple-700 border border-purple-200 flex items-center gap-1.5">
             <CheckCircle2 className="w-4 h-4 text-purple-600" />
             <span>{locale === 'ar' ? 'بيئة تشغيلية حقيقية (Production Mode)' : 'Production Mode'}</span>
