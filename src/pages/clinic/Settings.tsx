@@ -29,6 +29,15 @@ export const Settings: React.FC = () => {
 
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
+    dbClient.updateOrganization(organization.id, {
+      name_ar: nameAr,
+      name_en: nameEn,
+      phone,
+      email,
+      address,
+      tax_number: taxNumber,
+      commercial_reg_no: commercialReg,
+    });
     success(locale === 'ar' ? 'تم حفظ إعدادات وبيانات المنشأة بنجاح' : 'Settings saved successfully');
   };
 

@@ -438,6 +438,28 @@ class MultiTenantDatabase {
     this.notify();
   }
 
+  public updateOrganization(orgId: string, updates: Partial<Organization>) {
+    const idx = this.orgs.findIndex(o => o.id === orgId);
+    if (idx !== -1) {
+      this.orgs[idx] = {
+        ...this.orgs[idx],
+        ...updates,
+        updated_at: new Date().toISOString(),
+      };
+      this.persistToStorage();
+      this.logAudit({
+        orgId,
+        action: 'UPDATE_ORGANIZATION',
+        entityType: 'organizations',
+        entityId: orgId,
+        newValues: updates as any,
+      });
+      this.notify();
+      return this.orgs[idx];
+    }
+    return null;
+  }
+
   public updateOrganizationStatus(orgId: string, status: Organization['status']) {
     const org = this.orgs.find(o => o.id === orgId);
     if (org) {
