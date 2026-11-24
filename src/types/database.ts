@@ -729,3 +729,86 @@ export interface SystemAnnouncement {
   ends_at?: string;
   created_at: string;
 }
+
+// ============================================================================
+// HR & PAYROLL & EXPENSES & LEAVES SCHEMAS
+// ============================================================================
+
+export type PayrollStatus = 'draft' | 'approved' | 'paid';
+export type ExpenseCategory = 
+  | 'rent'
+  | 'utilities'
+  | 'medical_supplies'
+  | 'maintenance'
+  | 'hospitality'
+  | 'salaries'
+  | 'marketing'
+  | 'other';
+
+export type LeaveType = 
+  | 'annual'
+  | 'sick'
+  | 'casual'
+  | 'unpaid'
+  | 'maternity'
+  | 'emergency';
+
+export interface PayrollSlip {
+  id: string;
+  organization_id: string;
+  branch_id?: string;
+  user_id: string;
+  employee_name_ar: string;
+  employee_name_en?: string;
+  employee_role: AppRole;
+  month: string; // e.g. "2026-11"
+  base_salary: number;
+  allowances: number;
+  deductions: number;
+  net_salary: number;
+  payment_status: PayrollStatus;
+  payment_date?: string;
+  payment_method?: 'cash' | 'bank_transfer' | 'cheque';
+  notes?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FacilityExpense {
+  id: string;
+  organization_id: string;
+  branch_id?: string;
+  expense_category: ExpenseCategory;
+  title: string;
+  amount: number;
+  currency: string;
+  expense_date: string;
+  paid_to: string;
+  payment_method: 'cash' | 'bank_transfer' | 'credit_card' | 'cheque';
+  cashbox_id?: string;
+  receipt_number?: string;
+  status: 'paid' | 'pending_approval' | 'rejected';
+  approved_by?: string;
+  notes?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface LeaveRequest {
+  id: string;
+  organization_id: string;
+  user_id: string;
+  employee_name_ar: string;
+  employee_role: AppRole;
+  leave_type: LeaveType;
+  start_date: string;
+  end_date: string;
+  total_days: number;
+  reason: string;
+  status: 'pending' | 'approved' | 'rejected';
+  approved_by?: string;
+  decided_at?: string;
+  notes?: string;
+  created_at: string;
+}
+

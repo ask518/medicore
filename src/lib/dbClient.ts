@@ -7,7 +7,8 @@ import {
   Organization, SubscriptionPlan, Subscription, Branch, User, Doctor,
   Patient, Appointment, Consultation, AnatomicalFinding, Prescription,
   LaboratoryOrder, RadiologyOrder, Service, Invoice, Payment, Cashbox,
-  DoctorCommission, AuditLog, SystemAnnouncement, AppRole
+  DoctorCommission, AuditLog, SystemAnnouncement, AppRole,
+  PayrollSlip, FacilityExpense, LeaveRequest, PayrollStatus
 } from '../types/database';
 import { INITIAL_PLANS, INITIAL_USERS, INITIAL_ANNOUNCEMENTS } from './mockData';
 import { supabase } from './supabase';
@@ -33,6 +34,9 @@ class MultiTenantDatabase {
   private payments: Payment[] = [];
   private cashboxes: Cashbox[] = [];
   private commissions: DoctorCommission[] = [];
+  private payrollSlips: PayrollSlip[] = [];
+  private expenses: FacilityExpense[] = [];
+  private leaveRequests: LeaveRequest[] = [];
   private auditLogs: AuditLog[] = [];
   private announcements: SystemAnnouncement[] = [...INITIAL_ANNOUNCEMENTS];
 
@@ -71,6 +75,9 @@ class MultiTenantDatabase {
         this.cashboxes = JSON.parse(localStorage.getItem('medicore_prod_cashboxes') || '[]');
         this.services = JSON.parse(localStorage.getItem('medicore_prod_services') || '[]');
         this.commissions = JSON.parse(localStorage.getItem('medicore_prod_commissions') || '[]');
+        this.payrollSlips = JSON.parse(localStorage.getItem('medicore_prod_payroll') || '[]');
+        this.expenses = JSON.parse(localStorage.getItem('medicore_prod_expenses') || '[]');
+        this.leaveRequests = JSON.parse(localStorage.getItem('medicore_prod_leaves') || '[]');
         const storedPlans = localStorage.getItem('medicore_prod_plans');
         if (storedPlans) this.plans = JSON.parse(storedPlans);
         const storedLogs = localStorage.getItem('medicore_prod_audit');
@@ -116,6 +123,9 @@ class MultiTenantDatabase {
       localStorage.setItem('medicore_prod_cashboxes', JSON.stringify(this.cashboxes));
       localStorage.setItem('medicore_prod_services', JSON.stringify(this.services));
       localStorage.setItem('medicore_prod_commissions', JSON.stringify(this.commissions));
+      localStorage.setItem('medicore_prod_payroll', JSON.stringify(this.payrollSlips));
+      localStorage.setItem('medicore_prod_expenses', JSON.stringify(this.expenses));
+      localStorage.setItem('medicore_prod_leaves', JSON.stringify(this.leaveRequests));
       localStorage.setItem('medicore_prod_plans', JSON.stringify(this.plans));
       localStorage.setItem('medicore_prod_audit', JSON.stringify(this.auditLogs.slice(0, 100)));
     } catch (e) {
@@ -1024,6 +1034,188 @@ class MultiTenantDatabase {
         const doctor = this.doctors.find(d => d.id === c.doctor_id);
         return { ...c, doctor };
       });
+  }
+
+  // --------------------------------------------------------------------------
+  // Human Resources: Payroll & Salaries
+  // --------------------------------------------------------------------------
+  public getPayrollSlips(orgId: string) {
+    return this.payrollSlips.filter(s => s.organization_id === orgId);
+  }
+
+  public createPayrollSlip(
+    orgId: string,
+    data: Omit<PayrollSlip, 'id' | 'organization_id' | 'created_at' | 'updated_at'>
+  ): PayrollSlip {
+    const slip: PayrollSlip = {
+      ...data,
+      id: `pay-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      organization_id: orgId,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+    this.payrollSlips.push(slip);
+    this.persistToStorage();
+    this.logAudit({
+      orgId,
+      branchId: data.branch_id,
+      action: 'CREATE_PAYROLL',
+      entityType: 'payroll',
+      entityId: slip.id,
+      newValues: { employee: slip.employee_name_ar, net: slip.net_salary, month: slip.month }
+    });
+    this.notify();
+    return slip;
+  }
+
+  public updatePayrollStatus(slipId: string, status: PayrollStatus, paymentDate?: string) {
+    const idx = this.payrollSlips.findIndex(s => s.id === slipId);
+    if (idx !== -1) {
+      this.payrollSlips[idx].payment_status = status;
+      if (paymentDate) this.payrollSlips[idx].payment_date = paymentDate;
+      this.payrollSlips[idx].updated_at = new Date().toISOString();
+      this.persistToStorage();
+      this.logAudit({
+        orgId: this.payrollSlips[idx].organization_id,
+        action: 'UPDATE_PAYROLL_STATUS',
+        entityType: 'payroll',
+        entityId: slipId,
+        newValues: { status }
+      });
+      this.notify();
+      return this.payrollSlips[idx];
+    }
+    return null;
+  }
+
+  // --------------------------------------------------------------------------
+  // Facility Expenses & Operating Costs
+  // --------------------------------------------------------------------------
+  public getExpenses(orgId: string) {
+    return this.expenses.filter(e => e.organization_id === orgId);
+  }
+
+  public createExpense(
+    orgId: string,
+    data: Omit<FacilityExpense, 'id' | 'organization_id' | 'created_at' | 'updated_at'>
+  ): FacilityExpense {
+    const expense: FacilityExpense = {
+      ...data,
+      id: `exp-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      organization_id: orgId,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+    this.expenses.push(expense);
+
+    // Deduct from cashbox if paid and cashbox specified
+    if (expense.status === 'paid' && expense.cashbox_id) {
+      const cb = this.cashboxes.find(c => c.id === expense.cashbox_id);
+      if (cb) {
+        cb.current_balance -= expense.amount;
+      }
+    }
+
+    this.persistToStorage();
+    this.logAudit({
+      orgId,
+      branchId: data.branch_id,
+      action: 'RECORD_EXPENSE',
+      entityType: 'expenses',
+      entityId: expense.id,
+      newValues: { title: expense.title, amount: expense.amount, category: expense.expense_category }
+    });
+    this.notify();
+    return expense;
+  }
+
+  public updateExpenseStatus(expenseId: string, status: FacilityExpense['status'], approvedBy?: string) {
+    const idx = this.expenses.findIndex(e => e.id === expenseId);
+    if (idx !== -1) {
+      const prevStatus = this.expenses[idx].status;
+      this.expenses[idx].status = status;
+      if (approvedBy) this.expenses[idx].approved_by = approvedBy;
+      this.expenses[idx].updated_at = new Date().toISOString();
+
+      // If transitioning to paid from non-paid, deduct from cashbox
+      if (status === 'paid' && prevStatus !== 'paid' && this.expenses[idx].cashbox_id) {
+        const cb = this.cashboxes.find(c => c.id === this.expenses[idx].cashbox_id);
+        if (cb) {
+          cb.current_balance -= this.expenses[idx].amount;
+        }
+      }
+
+      this.persistToStorage();
+      this.logAudit({
+        orgId: this.expenses[idx].organization_id,
+        action: 'UPDATE_EXPENSE_STATUS',
+        entityType: 'expenses',
+        entityId: expenseId,
+        newValues: { status, approvedBy }
+      });
+      this.notify();
+      return this.expenses[idx];
+    }
+    return null;
+  }
+
+  public deleteExpense(expenseId: string) {
+    const exp = this.expenses.find(e => e.id === expenseId);
+    if (exp) {
+      this.expenses = this.expenses.filter(e => e.id !== expenseId);
+      this.persistToStorage();
+      this.notify();
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // Leaves & Vacation Requests
+  // --------------------------------------------------------------------------
+  public getLeaveRequests(orgId: string) {
+    return this.leaveRequests.filter(l => l.organization_id === orgId);
+  }
+
+  public createLeaveRequest(
+    orgId: string,
+    data: Omit<LeaveRequest, 'id' | 'organization_id' | 'created_at'>
+  ): LeaveRequest {
+    const req: LeaveRequest = {
+      ...data,
+      id: `leave-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      organization_id: orgId,
+      created_at: new Date().toISOString(),
+    };
+    this.leaveRequests.push(req);
+    this.persistToStorage();
+    this.logAudit({
+      orgId,
+      action: 'REQUEST_LEAVE',
+      entityType: 'leaves',
+      entityId: req.id,
+      newValues: { employee: req.employee_name_ar, type: req.leave_type, days: req.total_days }
+    });
+    this.notify();
+    return req;
+  }
+
+  public updateLeaveStatus(leaveId: string, status: LeaveRequest['status'], decidedBy?: string) {
+    const idx = this.leaveRequests.findIndex(l => l.id === leaveId);
+    if (idx !== -1) {
+      this.leaveRequests[idx].status = status;
+      if (decidedBy) this.leaveRequests[idx].approved_by = decidedBy;
+      this.leaveRequests[idx].decided_at = new Date().toISOString();
+      this.persistToStorage();
+      this.logAudit({
+        orgId: this.leaveRequests[idx].organization_id,
+        action: 'DECIDE_LEAVE',
+        entityType: 'leaves',
+        entityId: leaveId,
+        newValues: { status, decidedBy }
+      });
+      this.notify();
+      return this.leaveRequests[idx];
+    }
+    return null;
   }
 }
 

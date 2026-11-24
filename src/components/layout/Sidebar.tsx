@@ -9,7 +9,7 @@ import {
   LayoutDashboard, Users, Calendar, Stethoscope, Activity, FileText,
   FlaskConical, Radio, CreditCard, DollarSign, Building2, UserCog,
   BarChart3, UploadCloud, Settings, ShieldCheck, Megaphone,
-  UserCheck, X
+  UserCheck, X, Briefcase
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -66,6 +66,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       { id: 'commissions', label: t.nav.commissions, icon: <DollarSign className="w-4 h-4 text-amber-600" />, module: 'commissions' },
       { id: 'branches', label: t.nav.branches, icon: <Building2 className="w-4 h-4 text-slate-600" />, module: 'branches' },
       { id: 'staff', label: t.nav.staff, icon: <UserCog className="w-4 h-4 text-blue-600" />, module: 'staff' },
+      { id: 'hr', label: locale === 'ar' ? 'الموارد البشرية، الرواتب والمصاريف (HR)' : 'HR, Payroll & Expenses', icon: <Briefcase className="w-4 h-4 text-purple-600" />, module: 'hr' },
       { id: 'reports', label: t.nav.reports, icon: <BarChart3 className="w-4 h-4 text-cyan-600" />, module: 'reports' },
       { id: 'data_migration', label: t.nav.dataMigration, icon: <UploadCloud className="w-4 h-4 text-slate-500" />, module: 'settings' },
       { id: 'settings', label: t.nav.settings, icon: <Settings className="w-4 h-4 text-slate-500" />, module: 'settings' },

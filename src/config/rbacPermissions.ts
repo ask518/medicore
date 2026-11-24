@@ -19,6 +19,7 @@ export type RbacModule =
   | 'commissions'
   | 'branches'
   | 'staff'
+  | 'hr'
   | 'reports'
   | 'settings'
   | 'audit_logs';
@@ -271,6 +272,7 @@ export const hasPermission = (
     if (['patients', 'appointments'].includes(module)) return ['view', 'create', 'edit'].includes(action);
     if (['laboratory', 'radiology'].includes(module)) return ['view', 'create'].includes(action);
     if (['commissions'].includes(module)) return action === 'view';
+    if (module === 'hr') return ['view', 'create'].includes(action);
     if (module === 'dashboard') return action === 'view';
     return false;
   }
@@ -280,6 +282,7 @@ export const hasPermission = (
     if (['consultations', 'prescriptions'].includes(module)) return ['view', 'create', 'edit'].includes(action);
     if (['patients', 'appointments'].includes(module)) return ['view', 'create'].includes(action);
     if (['laboratory', 'radiology'].includes(module)) return ['view', 'create'].includes(action);
+    if (module === 'hr') return ['view', 'create'].includes(action);
     if (module === 'dashboard') return action === 'view';
     return false;
   }
@@ -288,6 +291,7 @@ export const hasPermission = (
   if (role === 'nurse') {
     if (['patients', 'appointments'].includes(module)) return ['view', 'create', 'edit'].includes(action);
     if (['consultations'].includes(module)) return ['view', 'create'].includes(action); // record vitals & triage notes
+    if (module === 'hr') return ['view', 'create'].includes(action);
     if (module === 'dashboard') return action === 'view';
     return false;
   }
@@ -296,6 +300,7 @@ export const hasPermission = (
   if (role === 'receptionist') {
     if (['patients', 'appointments'].includes(module)) return ['view', 'create', 'edit', 'print'].includes(action);
     if (module === 'billing') return ['view', 'create'].includes(action);
+    if (module === 'hr') return ['view', 'create'].includes(action);
     if (module === 'dashboard') return action === 'view';
     // Receptionist CANNOT modify or edit consultations
     if (['consultations', 'prescriptions', 'staff', 'branches', 'settings'].includes(module)) return false;
@@ -304,7 +309,7 @@ export const hasPermission = (
 
   // 12. Accountant
   if (role === 'accountant') {
-    if (['billing', 'commissions', 'reports'].includes(module)) return true;
+    if (['billing', 'commissions', 'reports', 'hr'].includes(module)) return true;
     if (['patients', 'appointments'].includes(module)) return action === 'view';
     if (module === 'dashboard') return action === 'view';
     // Accountant CANNOT modify clinical notes or medical records

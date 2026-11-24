@@ -163,3 +163,18 @@ export interface EyeExaminationData {
   refractionCylinderOS?: number;
   refractionAxisOS?: number;
 }
+
+// ----------------------------------------------------------------------------
+// 5. EXTENDED SPECIALTY SUITES RE-EXPORTS
+// ----------------------------------------------------------------------------
+export type { CardiologyData } from '../components/anatomy/CardiologyModule';
+export type { GastroenterologyData, GastroData } from '../components/anatomy/GastroenterologyModule';
+export type { PediatricsData } from '../components/anatomy/PediatricsModule';
+export type { GynecologyData } from '../components/anatomy/GynecologyModule';
+export type { NeurologyData } from '../components/anatomy/NeurologyModule';
+export type { PulmonologyData } from '../components/anatomy/PulmonologyModule';
+export type { EntData } from '../components/anatomy/EntModule';
+export type { UrologyData } from '../components/anatomy/UrologyModule';
+export type { PsychiatryData } from '../components/anatomy/PsychiatryModule';
+export type { GeneralClinicalData } from '../components/anatomy/GeneralClinicalTemplate';
+

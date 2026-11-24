@@ -3,7 +3,7 @@
 // Vitals, ICD-10 Diagnoses, Embedded Specialty Visualizer, e-Rx & Digital Signature
 // ============================================================================
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { useToast } from '../../context/ToastContext';
@@ -26,7 +26,7 @@ import { EntModule, EntData } from '../../components/anatomy/EntModule';
 import { UrologyModule, UrologyData } from '../../components/anatomy/UrologyModule';
 import { PsychiatryModule, PsychiatryData } from '../../components/anatomy/PsychiatryModule';
 import { GeneralClinicalTemplate, GeneralClinicalData } from '../../components/anatomy/GeneralClinicalTemplate';
-import { resolveClinicalModule, getSpecialtyByCode, ClinicalModuleType } from '../../config/medicalSpecialties';
+import { resolveClinicalModule, getSpecialtyByCode, ClinicalModuleType, MASTER_MEDICAL_SPECIALTIES, MedicalSpecialtyItem } from '../../config/medicalSpecialties';
 import { COMMON_ICD10_DIAGNOSES } from '../../config/appConfig';
 import { 
   Stethoscope, User, Heart, Activity, FileText, CheckCircle2, 
@@ -60,6 +60,35 @@ export const Consultation: React.FC = () => {
 
   // Clinical Suite active module with manual switcher option
   const [activeClinicalModule, setActiveClinicalModule] = useState<ClinicalModuleType>(autoModule);
+
+  // Filter modules based on facility's licensed specialties
+  const facilityModules = useMemo(() => {
+    const orgSpecs = organization?.specialties;
+    if (!orgSpecs || orgSpecs.length === 0) return null;
+    const set = new Set<ClinicalModuleType>();
+    for (const code of orgSpecs) {
+      if (code === 'dentistry' || code.includes('dental') || code === 'general_dentistry') set.add('dentistry');
+      else if (code === 'orthopedics' || code.includes('orthopedic')) set.add('orthopedics');
+      else if (code === 'cardiology' || code.includes('cardio')) set.add('cardiology');
+      else if (code === 'dermatology' || code.includes('derma')) set.add('dermatology');
+      else if (code === 'ophthalmology' || code.includes('eye') || code === 'lasik_surgery') set.add('ophthalmology');
+      else if (code === 'pediatrics' || code.includes('pediatric')) set.add('pediatrics');
+      else if (code === 'internal_medicine') { set.add('general_template'); set.add('cardiology'); }
+      else if (code === 'neurology' || code.includes('neuro')) set.add('neurology');
+      else if (code === 'pulmonology' || code.includes('pulmo')) set.add('pulmonology');
+      else if (code === 'gastroenterology' || code.includes('gastro')) set.add('gastroenterology');
+      else if (code === 'gynecology' || code.includes('gyn')) set.add('gynecology_obstetrics');
+      else if (code === 'ent') set.add('ent');
+      else if (code === 'urology') set.add('urology');
+      else if (code === 'psychiatry') set.add('psychiatry');
+      else {
+        const item = MASTER_MEDICAL_SPECIALTIES.find((s: MedicalSpecialtyItem) => s.code === code);
+        if (item?.clinical_module) set.add(item.clinical_module);
+      }
+    }
+    if (autoModule) set.add(autoModule);
+    return set;
+  }, [organization?.specialties, autoModule]);
 
   useEffect(() => {
     setActiveClinicalModule(autoModule);
@@ -574,20 +603,48 @@ export const Consultation: React.FC = () => {
                   onChange={e => setActiveClinicalModule(e.target.value as ClinicalModuleType)}
                   className="text-xs font-bold p-1.5 rounded-lg border border-slate-200 bg-slate-50 text-slate-800"
                 >
-                  <option value="orthopedics">{locale === 'ar' ? 'جراحة العظام (Orthopedics 3D/2D)' : 'Orthopedics (3D/2D)'}</option>
-                  <option value="dentistry">{locale === 'ar' ? 'طب الأسنان (Dentistry FDI 3D/2D)' : 'Dentistry FDI (3D/2D)'}</option>
-                  <option value="dermatology">{locale === 'ar' ? 'الجلدية والجسم (Dermatology 3D/2D)' : 'Dermatology (3D/2D)'}</option>
-                  <option value="ophthalmology">{locale === 'ar' ? 'طب العيون (Ophthalmology)' : 'Ophthalmology'}</option>
-                  <option value="cardiology">{locale === 'ar' ? 'أمراض القلب (Cardiology)' : 'Cardiology'}</option>
-                  <option value="gastroenterology">{locale === 'ar' ? 'الجهاز الهضمي (Gastroenterology)' : 'Gastroenterology'}</option>
-                  <option value="pediatrics">{locale === 'ar' ? 'طب الأطفال (Pediatrics & Growth)' : 'Pediatrics'}</option>
-                  <option value="gynecology_obstetrics">{locale === 'ar' ? 'النساء والتوليد (OB/GYN)' : 'Gynecology & OB'}</option>
-                  <option value="neurology">{locale === 'ar' ? 'المخ والأعصاب (Neurology GCS/MRC)' : 'Neurology'}</option>
-                  <option value="pulmonology">{locale === 'ar' ? 'الصدرية والرئة (Pulmonology PFT)' : 'Pulmonology'}</option>
-                  <option value="ent">{locale === 'ar' ? 'الأنف والأذن والحنجرة (ENT)' : 'ENT'}</option>
-                  <option value="urology">{locale === 'ar' ? 'المسالك البولية (Urology IPSS/DRE)' : 'Urology'}</option>
-                  <option value="psychiatry">{locale === 'ar' ? 'الطب النفسي (Psychiatry MSE/PHQ-9)' : 'Psychiatry'}</option>
-                  <option value="general_template">{locale === 'ar' ? 'الطب العام والباطني (General Clinical)' : 'General Clinical'}</option>
+                  {(!facilityModules || facilityModules.has('dentistry')) && (
+                    <option value="dentistry">{locale === 'ar' ? 'طب الأسنان (Dentistry FDI 3D/2D)' : 'Dentistry FDI (3D/2D)'}</option>
+                  )}
+                  {(!facilityModules || facilityModules.has('orthopedics')) && (
+                    <option value="orthopedics">{locale === 'ar' ? 'جراحة العظام (Orthopedics 3D/2D)' : 'Orthopedics (3D/2D)'}</option>
+                  )}
+                  {(!facilityModules || facilityModules.has('cardiology')) && (
+                    <option value="cardiology">{locale === 'ar' ? 'أمراض القلب (Cardiology)' : 'Cardiology'}</option>
+                  )}
+                  {(!facilityModules || facilityModules.has('dermatology')) && (
+                    <option value="dermatology">{locale === 'ar' ? 'الجلدية والجسم (Dermatology 3D/2D)' : 'Dermatology (3D/2D)'}</option>
+                  )}
+                  {(!facilityModules || facilityModules.has('ophthalmology')) && (
+                    <option value="ophthalmology">{locale === 'ar' ? 'طب العيون (Ophthalmology)' : 'Ophthalmology'}</option>
+                  )}
+                  {(!facilityModules || facilityModules.has('pediatrics')) && (
+                    <option value="pediatrics">{locale === 'ar' ? 'طب الأطفال (Pediatrics & Growth)' : 'Pediatrics'}</option>
+                  )}
+                  {(!facilityModules || facilityModules.has('gastroenterology')) && (
+                    <option value="gastroenterology">{locale === 'ar' ? 'الجهاز الهضمي (Gastroenterology)' : 'Gastroenterology'}</option>
+                  )}
+                  {(!facilityModules || facilityModules.has('gynecology_obstetrics')) && (
+                    <option value="gynecology_obstetrics">{locale === 'ar' ? 'النساء والتوليد (OB/GYN)' : 'Gynecology & OB'}</option>
+                  )}
+                  {(!facilityModules || facilityModules.has('neurology')) && (
+                    <option value="neurology">{locale === 'ar' ? 'المخ والأعصاب (Neurology GCS/MRC)' : 'Neurology'}</option>
+                  )}
+                  {(!facilityModules || facilityModules.has('pulmonology')) && (
+                    <option value="pulmonology">{locale === 'ar' ? 'الصدرية والرئة (Pulmonology PFT)' : 'Pulmonology'}</option>
+                  )}
+                  {(!facilityModules || facilityModules.has('ent')) && (
+                    <option value="ent">{locale === 'ar' ? 'الأنف والأذن والحنجرة (ENT)' : 'ENT'}</option>
+                  )}
+                  {(!facilityModules || facilityModules.has('urology')) && (
+                    <option value="urology">{locale === 'ar' ? 'المسالك البولية (Urology IPSS/DRE)' : 'Urology'}</option>
+                  )}
+                  {(!facilityModules || facilityModules.has('psychiatry')) && (
+                    <option value="psychiatry">{locale === 'ar' ? 'الطب النفسي (Psychiatry MSE/PHQ-9)' : 'Psychiatry'}</option>
+                  )}
+                  {(!facilityModules || facilityModules.has('general_template')) && (
+                    <option value="general_template">{locale === 'ar' ? 'الطب العام والباطني (General Clinical)' : 'General Clinical'}</option>
+                  )}
                 </select>
               </div>
 

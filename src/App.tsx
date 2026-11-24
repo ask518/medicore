@@ -25,6 +25,7 @@ import { Staff } from './pages/clinic/Staff';
 import { Reports } from './pages/clinic/Reports';
 import { DataMigration } from './pages/clinic/DataMigration';
 import { Settings } from './pages/clinic/Settings';
+import { HR } from './pages/clinic/HR';
 import { PatientPortal } from './pages/patient-portal/PatientPortal';
 
 const AppContent: React.FC = () => {
@@ -88,6 +89,8 @@ const AppContent: React.FC = () => {
         return <Branches />;
       case 'staff':
         return <Staff />;
+      case 'hr':
+        return <HR />;
       case 'reports':
         return <Reports />;
       case 'data_migration':
