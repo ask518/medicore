@@ -44,6 +44,11 @@ const AppContent: React.FC = () => {
   }, [user?.role, isSuperAdmin, isPatient]);
 
   const renderActiveView = () => {
+    // If super admin is active and current tab is not a platform tab, redirect immediately to super admin dashboard
+    if (isSuperAdmin && !currentTab.startsWith('super_admin_')) {
+      return <SuperAdminDashboard activeTab="super_admin_dashboard" onSelectTab={setCurrentTab} />;
+    }
+
     switch (currentTab) {
       // Super Admin
       case 'super_admin_dashboard':

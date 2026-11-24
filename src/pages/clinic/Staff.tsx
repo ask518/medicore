@@ -48,25 +48,9 @@ export const Staff: React.FC = () => {
     return MASTER_MEDICAL_SPECIALTIES.filter(s => s.is_active);
   }, [organization?.specialties]);
 
-  if (!organization) {
-    return (
-      <div className="p-8 text-center bg-white rounded-2xl border border-slate-200">
-        <Building2 className="w-12 h-12 text-slate-400 mx-auto mb-3" />
-        <h3 className="text-base font-bold text-slate-800">
-          {locale === 'ar' ? 'لم يتم تحديد منشأة طبية نشطة' : 'No active medical facility selected'}
-        </h3>
-        <p className="text-xs text-slate-500 mt-1">
-          {locale === 'ar' 
-            ? 'يرجى اختيار المنشأة الطبية أولاً لإدارة فريق العمل والصلاحيات الخاصة بها.' 
-            : 'Please select a facility first to manage its staff and RBAC.'}
-        </p>
-      </div>
-    );
-  }
-
-  const orgId = organization.id;
-  const staff = dbClient.getUsers(orgId);
-  const doctors = dbClient.getDoctors(orgId);
+  const orgId = organization?.id || '';
+  const staff = orgId ? dbClient.getUsers(orgId) : [];
+  const doctors = orgId ? dbClient.getDoctors(orgId) : [];
 
   // Filtered staff list
   const filteredStaff = useMemo(() => {
@@ -88,6 +72,22 @@ export const Staff: React.FC = () => {
       return matchesSearch && matchesRole && matchesBranch;
     });
   }, [staff, searchTerm, roleFilter, branchFilter]);
+
+  if (!organization) {
+    return (
+      <div className="p-8 text-center bg-white rounded-2xl border border-slate-200">
+        <Building2 className="w-12 h-12 text-slate-400 mx-auto mb-3" />
+        <h3 className="text-base font-bold text-slate-800">
+          {locale === 'ar' ? 'لم يتم تحديد منشأة طبية نشطة' : 'No active medical facility selected'}
+        </h3>
+        <p className="text-xs text-slate-500 mt-1">
+          {locale === 'ar' 
+            ? 'يرجى اختيار المنشأة الطبية أولاً لإدارة فريق العمل والصلاحيات الخاصة بها.' 
+            : 'Please select a facility first to manage its staff and RBAC.'}
+        </p>
+      </div>
+    );
+  }
 
   // Statistics
   const doctorsCount = staff.filter(s => ['doctor', 'assistant_doctor'].includes(s.role)).length;
