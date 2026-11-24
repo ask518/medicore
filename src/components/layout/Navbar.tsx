@@ -6,10 +6,9 @@
 import React, { useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
-import { dbClient } from '../../lib/dbClient';
 import { 
   Building2, MapPin, Globe, UserCheck, Shield, ChevronDown,
-  LogOut, Menu, ArrowRightLeft, Sparkles
+  LogOut, Menu, Sparkles
 } from 'lucide-react';
 
 interface NavbarProps {
@@ -19,8 +18,7 @@ interface NavbarProps {
 export const Navbar: React.FC<NavbarProps> = ({ onToggleMobileSidebar }) => {
   const { 
     user, organization, activeBranch, availableBranches, 
-    switchRole, switchBranch, isSuperAdmin, isEnterpriseDedicated, logout,
-    setShowAuthModal
+    switchBranch, isSuperAdmin, isEnterpriseDedicated, logout
   } = useAuth();
   const { locale, setLocale, t } = useLanguage();
   const [showRoleMenu, setShowRoleMenu] = useState(false);
@@ -30,7 +28,6 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleMobileSidebar }) => {
     setLocale(locale === 'ar' ? 'en' : 'ar');
   };
 
-  const orgUsers = organization ? dbClient.getUsers(organization.id) : [];
 
   return (
     <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200 h-16 flex items-center justify-between px-4 sm:px-6 shadow-2xs">
@@ -70,20 +67,6 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleMobileSidebar }) => {
 
       {/* Center / Right controls */}
       <div className="flex items-center gap-2 sm:gap-3">
-        {/* Quick Return to Super Admin Button (When Managing a Clinic) */}
-        {organization && (
-          <button
-            type="button"
-            onClick={() => switchRole('user-super-admin')}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-purple-900 to-indigo-900 hover:from-purple-800 hover:to-indigo-800 text-purple-100 text-xs font-bold shadow-xs border border-purple-700/50 transition-all"
-            title={locale === 'ar' ? 'الرجوع للوحة تحكم مالك المنصة وإدارة كافة المنشآت' : 'Return to Super Admin Dashboard'}
-          >
-            <Shield className="w-3.5 h-3.5 text-purple-300" />
-            <span className="hidden sm:inline">{locale === 'ar' ? '👑 العودة لإدارة المنصة' : '👑 Super Admin'}</span>
-            <span className="sm:hidden">{locale === 'ar' ? '👑 المنصة' : 'Admin'}</span>
-          </button>
-        )}
-
         {/* Branch Selector (For active clinic with multiple branches) */}
         {organization && availableBranches.length > 0 && (
           <div className="relative">
@@ -165,7 +148,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleMobileSidebar }) => {
                   <div className="font-bold text-xs text-slate-900">
                     {user ? user[locale === 'ar' ? 'name_ar' : 'name_en'] : 'Super Admin'}
                   </div>
-                  <div className="text-[11px] text-slate-500">{user?.email || 'admin@medicore.cloud'}</div>
+                  <div className="text-[11px] text-slate-500">{user?.email || ''}</div>
                 </div>
                 {isSuperAdmin && (
                   <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-purple-100 text-purple-800">
@@ -174,69 +157,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleMobileSidebar }) => {
                 )}
               </div>
 
-              {/* Quick Action: Back to Super Admin */}
-              {!isSuperAdmin && (
-                <div className="p-2 border-b border-slate-100">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      switchRole('user-super-admin');
-                      setShowRoleMenu(false);
-                    }}
-                    className="w-full text-start px-3 py-2 text-xs font-bold text-purple-700 hover:bg-purple-50 rounded-xl flex items-center gap-2 transition-colors"
-                  >
-                    <Shield className="w-4 h-4 text-purple-600" />
-                    <span>{locale === 'ar' ? '👑 العودة للوحة مالك المنصة' : '👑 Return to Super Admin'}</span>
-                  </button>
-                </div>
-              )}
-
-              {/* Organization Staff Switcher (if multiple staff in this facility) */}
-              {orgUsers.length > 1 && (
-                <div className="max-h-56 overflow-y-auto divide-y divide-slate-100">
-                  <div className="px-3 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider bg-slate-50">
-                    {locale === 'ar' ? 'فريق عمل المنشأة' : 'Facility Staff'}
-                  </div>
-                  {orgUsers.map(u => {
-                    const isCurrent = user?.id === u.id;
-                    return (
-                      <button
-                        key={u.id}
-                        type="button"
-                        onClick={() => {
-                          switchRole(u.id);
-                          setShowRoleMenu(false);
-                        }}
-                        className={`w-full text-start p-2.5 text-xs flex flex-col gap-0.5 hover:bg-slate-50 transition-colors ${
-                          isCurrent ? 'bg-medicore-50/80 text-medicore-800 font-bold' : 'text-slate-800'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <span className="font-bold">{u[locale === 'ar' ? 'name_ar' : 'name_en']}</span>
-                          <span className="text-[10px] font-semibold px-1.5 py-0.2 rounded-full bg-slate-100 text-slate-600">
-                            {t.roles[u.role] || u.role}
-                          </span>
-                        </div>
-                        <span className="text-[11px] text-slate-500">{u.email}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-
               <div className="p-1 border-t border-slate-100 space-y-1">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowRoleMenu(false);
-                    setShowAuthModal(true);
-                  }}
-                  className="w-full text-start px-3 py-2 text-xs font-bold text-medicore-700 hover:bg-medicore-50 rounded-xl flex items-center gap-2 transition-colors"
-                >
-                  <UserCheck className="w-3.5 h-3.5 text-medicore-600" />
-                  <span>{locale === 'ar' ? 'تسجيل دخول بحساب آخر' : 'Sign In With Another Account'}</span>
-                </button>
-
                 <button
                   type="button"
                   onClick={() => {

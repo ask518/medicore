@@ -9,7 +9,7 @@ import {
   LayoutDashboard, Users, Calendar, Stethoscope, Activity, FileText,
   FlaskConical, Radio, CreditCard, DollarSign, Building2, UserCog,
   BarChart3, UploadCloud, Settings, ShieldCheck, Megaphone,
-  UserCheck, X, Briefcase
+  UserCheck, X, Briefcase, Package
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -62,7 +62,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
       { id: 'prescriptions', label: t.nav.prescriptions, icon: <FileText className="w-4 h-4 text-teal-600" />, module: 'prescriptions' },
       { id: 'laboratory', label: t.nav.laboratory, icon: <FlaskConical className="w-4 h-4 text-violet-600" />, module: 'laboratory' },
       { id: 'radiology', label: t.nav.radiology, icon: <Radio className="w-4 h-4 text-fuchsia-600" />, module: 'radiology' },
+      { id: 'inventory', label: t.nav.inventory, icon: <Package className="w-4 h-4 text-emerald-600" />, module: 'inventory' },
       { id: 'billing', label: t.nav.billing, icon: <CreditCard className="w-4 h-4 text-emerald-600" />, module: 'billing' },
+      { id: 'insurance', label: t.nav.insurance, icon: <ShieldCheck className="w-4 h-4 text-teal-600" />, module: 'insurance' },
       { id: 'commissions', label: t.nav.commissions, icon: <DollarSign className="w-4 h-4 text-amber-600" />, module: 'commissions' },
       { id: 'branches', label: t.nav.branches, icon: <Building2 className="w-4 h-4 text-slate-600" />, module: 'branches' },
       { id: 'staff', label: t.nav.staff, icon: <UserCog className="w-4 h-4 text-blue-600" />, module: 'staff' },

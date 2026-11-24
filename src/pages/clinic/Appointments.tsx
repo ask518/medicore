@@ -1,26 +1,64 @@
 // ============================================================================
 // MEDICORE – Advanced Appointment Scheduling & Double-Booking Guard Engine
-// Branch & Doctor Calendar with Realtime Reception Check-In Queue
+// Branch & Doctor Calendar with Realtime Reception Check-In Queue (Supabase Cloud)
 // ============================================================================
 
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { useToast } from '../../context/ToastContext';
-import { dbClient } from '../../lib/dbClient';
-import { Appointment, AppointmentStatus, AppointmentType } from '../../types/database';
+import { supabase } from '../../lib/supabase';
+import { AppointmentStatus, AppointmentType } from '../../types/database';
 import { 
   Calendar, Clock, User, Plus, CheckCircle, XCircle, 
   AlertTriangle, Filter, ChevronLeft, ChevronRight, Stethoscope,
   Building2, Check
 } from 'lucide-react';
 
+interface PatientOption {
+  id: string;
+  mrn: string;
+  first_name_ar: string;
+  last_name_ar: string;
+}
+
+interface DoctorOption {
+  id: string;
+  specialty_title_ar?: string;
+  specialty_title_en?: string;
+  slot_duration_minutes?: number;
+  user?: {
+    name_ar?: string;
+    name_en?: string;
+  };
+}
+
+interface AppointmentRow {
+  id: string;
+  appointment_number: string;
+  appointment_date: string;
+  start_time: string;
+  end_time: string;
+  status: AppointmentStatus;
+  type: AppointmentType;
+  reason_for_visit?: string;
+  patient_id: string;
+  doctor_id: string;
+  patient?: PatientOption;
+  doctor?: DoctorOption;
+}
+
+const todayLocal = () => {
+  const date = new Date();
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+};
+
 export const Appointments: React.FC = () => {
   const { organization, activeBranch } = useAuth();
   const { locale, t } = useLanguage();
   const { success, error, warning } = useToast();
 
-  const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [selectedDate, setSelectedDate] = useState(todayLocal);
   const [selectedDoctorId, setSelectedDoctorId] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [showBookingModal, setShowBookingModal] = useState(false);
@@ -28,52 +66,61 @@ export const Appointments: React.FC = () => {
   // Booking Form State
   const [patientId, setPatientId] = useState('');
   const [doctorId, setDoctorId] = useState('');
-  const [appointmentDate, setAppointmentDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [appointmentDate, setAppointmentDate] = useState(todayLocal);
   const [startTime, setStartTime] = useState('11:00');
   const [appointmentType, setAppointmentType] = useState<AppointmentType>('new_consultation');
   const [reason, setReason] = useState('');
+  const [doctors, setDoctors] = useState<DoctorOption[]>([]);
+  const [patients, setPatients] = useState<PatientOption[]>([]);
+  const [appointments, setAppointments] = useState<AppointmentRow[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
 
-  if (!organization) return null;
-  const orgId = organization.id;
+  const orgId = organization?.id || '';
 
-  const doctors = dbClient.getDoctors(orgId);
-  const patients = dbClient.getPatients(orgId);
-  const branches = dbClient.getBranches(orgId);
-
-  const appointments = dbClient.getAppointments(orgId, {
-    branchId: activeBranch?.id,
-    doctorId: selectedDoctorId !== 'all' ? selectedDoctorId : undefined,
-    date: selectedDate,
-    status: statusFilter !== 'all' ? statusFilter : undefined,
-  });
-
-  const handleCreateAppointment = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!patientId || !doctorId || !appointmentDate || !startTime) {
-      warning(t.common.required);
-      return;
-    }
+  const loadAppointments = useCallback(async () => {
+    if (!orgId) { setIsLoading(false); return; }
+    if (!supabase) { setIsLoading(false); error(locale === 'ar' ? 'قاعدة البيانات غير مهيأة.' : 'Database is not configured.'); return; }
+    setIsLoading(true);
 
     try {
-      const created = dbClient.createAppointment(orgId, {
-        branch_id: activeBranch?.id || branches[0].id,
-        doctor_id: doctorId,
-        patient_id: patientId,
-        appointment_date: appointmentDate,
-        start_time: startTime,
-        end_time: calculateEndTime(startTime, 20),
-        type: appointmentType,
-        status: 'confirmed',
-        reason_for_visit: reason,
-      });
+      const [patientRes, doctorRes] = await Promise.all([
+        supabase.from('patients').select('id, mrn, first_name_ar, last_name_ar').eq('organization_id', orgId).eq('is_active', true),
+        supabase.from('doctors').select('id, specialty_title_ar, specialty_title_en, slot_duration_minutes, user:users(name_ar, name_en)').eq('organization_id', orgId).eq('is_active', true),
+      ]);
 
-      success(locale === 'ar' ? `تم حجز الموعد بنجاح برقم ${created.appointment_number}` : `Appointment booked: ${created.appointment_number}`);
-      setShowBookingModal(false);
-      setReason('');
-    } catch (err: any) {
-      error(err.message || t.appointments.doubleBookingPrevented);
+      if (patientRes.data) setPatients(patientRes.data as unknown as PatientOption[]);
+      if (doctorRes.data) setDoctors(doctorRes.data as unknown as DoctorOption[]);
+
+      let query = supabase
+        .from('appointments')
+        .select('id, appointment_number, appointment_date, start_time, end_time, status, type, reason_for_visit, patient_id, doctor_id, patient:patients(id, mrn, first_name_ar, last_name_ar), doctor:doctors(id, specialty_title_ar, specialty_title_en, user:users(name_ar, name_en))')
+        .eq('organization_id', orgId)
+        .eq('appointment_date', selectedDate)
+        .order('start_time', { ascending: true });
+
+      if (activeBranch?.id) query = query.eq('branch_id', activeBranch.id);
+      if (selectedDoctorId !== 'all') query = query.eq('doctor_id', selectedDoctorId);
+      if (statusFilter !== 'all') query = query.eq('status', statusFilter);
+
+      const { data, error: loadErr } = await query;
+      if (loadErr) {
+        setAppointments([]);
+        error(locale === 'ar' ? 'تعذر تحميل المواعيد.' : 'Could not load appointments.');
+      } else {
+        setAppointments((data || []) as unknown as AppointmentRow[]);
+      }
+    } catch (e) {
+      console.error(e);
+      setAppointments([]);
+    } finally {
+      setIsLoading(false);
     }
-  };
+  }, [orgId, activeBranch?.id, selectedDate, selectedDoctorId, statusFilter, locale, error]);
+
+  useEffect(() => {
+    void loadAppointments();
+  }, [loadAppointments]);
 
   const calculateEndTime = (start: string, durationMinutes: number) => {
     const [h, m] = start.split(':').map(Number);
@@ -83,10 +130,80 @@ export const Appointments: React.FC = () => {
     return `${endH.toString().padStart(2, '0')}:${endM.toString().padStart(2, '0')}`;
   };
 
-  const handleUpdateStatus = (id: string, newStatus: AppointmentStatus) => {
-    dbClient.updateAppointmentStatus(id, newStatus);
-    success(locale === 'ar' ? 'تم تحديث حالة الموعد' : 'Appointment status updated');
+  const handleCreateAppointment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!patientId || !doctorId || !appointmentDate || !startTime) {
+      warning(t.common.required);
+      return;
+    }
+
+    if (!supabase || !activeBranch?.id) {
+      error(locale === 'ar' ? 'لا يوجد فرع نشط للحجز.' : 'No active branch is selected.');
+      return;
+    }
+
+    const doctor = doctors.find(d => d.id === doctorId);
+    const duration = doctor?.slot_duration_minutes || 20;
+    const [hours, minutes] = startTime.split(':').map(Number);
+    if (hours * 60 + minutes + duration > 24 * 60) {
+      error(locale === 'ar' ? 'وقت الموعد يتجاوز نهاية اليوم.' : 'Appointment duration cannot cross midnight.');
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      const appointmentNumber = `APT-${new Date().getFullYear()}-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
+      const { data: created, error: insertError } = await supabase.from('appointments').insert({
+        organization_id: orgId,
+        branch_id: activeBranch.id,
+        doctor_id: doctorId,
+        patient_id: patientId,
+        appointment_number: appointmentNumber,
+        appointment_date: appointmentDate,
+        start_time: startTime,
+        end_time: calculateEndTime(startTime, duration),
+        type: appointmentType,
+        status: 'confirmed',
+        reason_for_visit: reason,
+      }).select('appointment_number').single();
+
+      if (insertError || !created) {
+        throw insertError || new Error('Appointment was not saved.');
+      }
+
+      success(locale === 'ar' ? `تم حجز الموعد بنجاح برقم ${created.appointment_number}` : `Appointment booked: ${created.appointment_number}`);
+      setShowBookingModal(false);
+      setReason('');
+      await loadAppointments();
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : '';
+      if (message.includes('idx_doctor_appointment_slot') || message.includes('appointments_no_doctor_time_overlap')) {
+        error(t.appointments.doubleBookingPrevented);
+      } else {
+        error(message || (locale === 'ar' ? 'تعذر حفظ الموعد.' : 'Could not save appointment.'));
+      }
+    } finally {
+      setIsSaving(false);
+    }
   };
+
+  const handleUpdateStatus = async (id: string, newStatus: AppointmentStatus) => {
+    if (!supabase) return;
+    const { error: updateError } = await supabase
+      .from('appointments')
+      .update({ status: newStatus })
+      .eq('id', id)
+      .eq('organization_id', orgId);
+
+    if (updateError) {
+      error(locale === 'ar' ? 'تعذر تحديث حالة الموعد.' : 'Could not update appointment status.');
+      return;
+    }
+    success(locale === 'ar' ? 'تم تحديث حالة الموعد' : 'Appointment status updated');
+    await loadAppointments();
+  };
+
+  if (!organization) return null;
 
   return (
     <div className="space-y-6">
@@ -128,7 +245,7 @@ export const Appointments: React.FC = () => {
           />
           <button
             type="button"
-            onClick={() => setSelectedDate(new Date().toISOString().split('T')[0])}
+            onClick={() => setSelectedDate(todayLocal())}
             className="px-3 py-2 text-xs font-bold rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700"
           >
             {locale === 'ar' ? 'اليوم' : 'Today'}
@@ -146,7 +263,7 @@ export const Appointments: React.FC = () => {
             <option value="all">{locale === 'ar' ? 'جميع الأطباء' : 'All Doctors'}</option>
             {doctors.map(d => (
               <option key={d.id} value={d.id}>
-                {d.user ? d.user[locale === 'ar' ? 'name_ar' : 'name_en'] : d.specialty_title_ar}
+                {d.user ? (locale === 'ar' ? d.user.name_ar : d.user.name_en) : d.specialty_title_ar}
               </option>
             ))}
           </select>
@@ -173,12 +290,14 @@ export const Appointments: React.FC = () => {
       <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">
         <div className="p-4 border-b border-slate-100 flex items-center justify-between">
           <span className="font-bold text-xs text-slate-500 uppercase tracking-wider">
-            {appointments.length} {locale === 'ar' ? 'مواعيد مسجلة لهذا التاريخ' : 'Appointments Scheduled'}
+            {isLoading ? (locale === 'ar' ? 'جار التحميل...' : 'Loading...') : `${appointments.length} ${locale === 'ar' ? 'مواعيد مسجلة لهذا التاريخ' : 'Appointments Scheduled'}`}
           </span>
         </div>
 
         <div className="divide-y divide-slate-100">
-          {appointments.length === 0 ? (
+          {isLoading ? (
+            <div className="p-12 text-center text-slate-400 text-xs">{locale === 'ar' ? 'جار تحميل المواعيد...' : 'Loading appointments...'}</div>
+          ) : appointments.length === 0 ? (
             <div className="p-12 text-center text-slate-400 text-xs">
               <Calendar className="w-10 h-10 mx-auto mb-2 opacity-30" />
               <p>{locale === 'ar' ? 'لا توجد مواعيد مسجلة في هذا اليوم أو التصفية' : 'No appointments scheduled for this selection'}</p>
@@ -220,7 +339,7 @@ export const Appointments: React.FC = () => {
 
                   {/* Actions & Status */}
                   <div className="flex items-center gap-2 self-end sm:self-auto">
-                    <span className={`text-xs px-2.5 py-1 rounded-full ${statusStyles[apt.status]}`}>
+                    <span className={`text-xs px-2.5 py-1 rounded-full ${statusStyles[apt.status] || 'bg-slate-100 text-slate-700'}`}>
                       {t.appointments[`status_${apt.status}`] || apt.status}
                     </span>
 
@@ -228,7 +347,7 @@ export const Appointments: React.FC = () => {
                     {apt.status === 'confirmed' && (
                       <button
                         type="button"
-                        onClick={() => handleUpdateStatus(apt.id, 'checked_in')}
+                        onClick={() => void handleUpdateStatus(apt.id, 'checked_in')}
                         className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg"
                       >
                         {t.appointments.checkIn}
@@ -238,7 +357,7 @@ export const Appointments: React.FC = () => {
                     {apt.status === 'checked_in' && (
                       <button
                         type="button"
-                        onClick={() => handleUpdateStatus(apt.id, 'waiting')}
+                        onClick={() => void handleUpdateStatus(apt.id, 'waiting')}
                         className="px-3 py-1 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-lg"
                       >
                         {locale === 'ar' ? 'تحويل للانتظار' : 'To Waiting Room'}
@@ -248,7 +367,7 @@ export const Appointments: React.FC = () => {
                     {['pending', 'confirmed'].includes(apt.status) && (
                       <button
                         type="button"
-                        onClick={() => handleUpdateStatus(apt.id, 'cancelled')}
+                        onClick={() => void handleUpdateStatus(apt.id, 'cancelled')}
                         className="px-2.5 py-1 text-slate-400 hover:text-rose-600 text-xs rounded-lg"
                         title={t.common.cancel}
                       >
@@ -287,7 +406,7 @@ export const Appointments: React.FC = () => {
                   <option value="">{locale === 'ar' ? '-- اختر المريض --' : '-- Select Patient --'}</option>
                   {patients.map(p => (
                     <option key={p.id} value={p.id}>
-                      {p.first_name_ar} {p.last_name_ar} ({p.mrn}) — {p.phone}
+                      {p.first_name_ar} {p.last_name_ar} ({p.mrn})
                     </option>
                   ))}
                 </select>
@@ -307,7 +426,7 @@ export const Appointments: React.FC = () => {
                   <option value="">{locale === 'ar' ? '-- اختر الطبيب المعالج --' : '-- Select Doctor --'}</option>
                   {doctors.map(d => (
                     <option key={d.id} value={d.id}>
-                      {d.user ? d.user[locale === 'ar' ? 'name_ar' : 'name_en'] : ''} ({d[locale === 'ar' ? 'specialty_title_ar' : 'specialty_title_en']})
+                      {d.user ? (locale === 'ar' ? d.user.name_ar : d.user.name_en) : ''} ({locale === 'ar' ? d.specialty_title_ar : d.specialty_title_en})
                     </option>
                   ))}
                 </select>
@@ -357,6 +476,7 @@ export const Appointments: React.FC = () => {
               <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
                 <button
                   type="button"
+                  disabled={isSaving}
                   onClick={() => setShowBookingModal(false)}
                   className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-xl"
                 >
@@ -364,9 +484,10 @@ export const Appointments: React.FC = () => {
                 </button>
                 <button
                   type="submit"
+                  disabled={isSaving || doctors.length === 0 || patients.length === 0}
                   className="px-5 py-2 text-sm bg-medicore-600 hover:bg-medicore-700 text-white font-bold rounded-xl shadow-xs"
                 >
-                  {t.appointments.newAppointment}
+                  {isSaving ? (locale === 'ar' ? 'جار الحفظ...' : 'Saving...') : t.appointments.newAppointment}
                 </button>
               </div>
             </form>

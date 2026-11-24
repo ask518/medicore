@@ -1,6 +1,18 @@
 # MEDICORE – Enterprise Multi-Tenant Healthcare Management SaaS
 ## المنصة السحابية الموحدة لإدارة العيادات والمجمعات والمراكز الطبية التخصصية
 
+> **Current implementation status (2026-11-25):** Core cloud workflows exist for sign-in/out, organization onboarding, patient create/list/CSV import, appointments, staff invitations, allergies and medical history, signed consultations, prescriptions, basic invoicing/payments, branches, settings, and read-only reports. The linked Supabase project has the schema and security migrations applied; metadata checks confirmed RLS on all 40 public tables, no anonymous patient read permission, and zero patient rows. `invite-staff` is deployed with JWT verification, but invitation requests remain closed until the exact `APP_ORIGIN` secret is configured. Laboratory, radiology, HR, specialty canvases, and patient portal remain disabled. This is not yet a verified production launch: configure the app origin/auth settings and run first-use checks before entering patient data.
+
+### Supabase setup required before use
+
+1. Configure `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` in the deployment environment.
+2. For a new project, apply migrations in order: `20261122000001_initial_schema.sql`, `20261122000002_rls_policies.sql`, `20261122000003_functions_triggers.sql`, `20261122000004_seed_data.sql`, `20261123000001_specialties_and_rbac.sql`, `20261124000001_security_hardening.sql`, then `20261125000001_security_advisor_fixes.sql`. The configured project already has these migrations applied.
+3. Deploy `supabase/functions/invite-staff` and configure its `APP_ORIGIN` secret, then add the production app URL to Supabase Auth's redirect allow-list.
+4. Create the first platform administrator by registering its email through Supabase Auth, then promote that exact profile to `super_admin` from the trusted SQL editor with a service role. Never add a client-side bootstrap password or role picker.
+5. Configure email verification, password recovery, backups, and MFA policy in the Supabase project.
+
+The local build does not apply migrations or validate browser workflows. The linked Supabase project was updated; no patient rows were present when it was checked. The app has not yet been exercised end-to-end against a real account.
+
 ---
 
 ### نظرة عامة | Overview
@@ -10,7 +22,7 @@
 - **الواجهة الأمامية (Frontend):** React 18 + TypeScript + Vite + Tailwind CSS + Lucide Icons + PWA.
 - **الاستضافة السحابية للواجهة:** Vercel / Cloudflare Pages / Firebase Hosting (Static Build).
 - **قاعدة البيانات والتحكم بالهوية (BaaS):** Supabase Managed Cloud (PostgreSQL 15+ مع Row Level Security و Auth و Storage و Triggers).
-- **محرك المحاكاة والاختبار السريع (Dual-Mode):** محرك بيانات محلي فائق السرعة مدمج يتيح العمل والتجربة فوراً بدون إنترنت أو إعدادات مسبقة، مع التوصيل الفوري بسحابة Supabase بمجرد وضع مفاتيح الربط في ملف `.env`.
+- **البيانات:** يعتمد التطبيق على Supabase عند إعداد متغيرات الاتصال. لا يوجد مسار محلي يزرع بيانات عيادات تجريبية؛ الوحدات غير المتصلة تعرض حالة التوقف بوضوح.
 
 ---
 
@@ -30,7 +42,9 @@
 
 ---
 
-## المكونات والوحدات الرئيسية المكتملة
+## تصميم الوحدات وحالة التنفيذ
+
+العناوين التالية تصف نطاق المنتج المقصود، ولا تعني أن كل وظيفة مذكورة مكتملة أو صالحة للتشغيل الطبي. الحالة الدقيقة موضحة في تنبيه التنفيذ أعلى الصفحة.
 
 ### 1. لوحة تحكم مالك المنصة (Super Admin Dashboard)
 - مراقبة كافة المنشآت الطبية المسجلة مع إحصائيات الفروع والأطباء وحجم التخزين.
@@ -117,7 +131,10 @@ medicore/
 │       ├── 20261122000001_initial_schema.sql       # الهيكل الكامل لكافة الجداول
 │       ├── 20261122000002_rls_policies.sql        # سياسات العزل الصارم بين المستأجرين
 │       ├── 20261122000003_functions_triggers.sql  # التريجرز والتدقيق والحساب التلقائي
-│       └── 20261122000004_seed_data.sql           # بيانات الباقات والدليل الدوائي
+│       ├── 20261122000004_seed_data.sql           # قيم ابتدائية لخطط الاشتراك فقط
+│       ├── 20261123000001_specialties_and_rbac.sql # حقول التخصص وربط الفرع الأساسي
+│       ├── 20261124000001_security_hardening.sql  # تشديد الهوية والعزل والصلاحيات
+│       └── 20261125000001_security_advisor_fixes.sql # ضبط الصلاحيات ومسارات الدوال
 ├── src/
 │   ├── config/
 │   │   ├── appConfig.ts         # إعدادات النشر (SaaS vs Enterprise) والتخصصات
@@ -128,8 +145,6 @@ medicore/
 │   │   └── specialty.ts         # هياكل العظام والأسنان والجلدية والعيون
 │   ├── lib/
 │   │   ├── supabase.ts          # عميل Supabase المدار
-│   │   ├── dbClient.ts          # المحرك التفاعلي وقواعد العمل الموحدة
-│   │   └── mockData.ts          # بيانات المنشآت التجريبية للعزل والاختبار
 │   ├── context/
 │   │   ├── AuthContext.tsx      # سياق الهوية والمستأجر وتبديل الأدوار والفروع
 │   │   ├── LanguageContext.tsx  # دعم كامل للاتجاه RTL / LTR
@@ -167,7 +182,6 @@ medicore/
 │   ├── main.tsx                         # نقطة الدخول
 │   └── index.css                        # أنماط Tailwind والحركات
 └── scripts/
-    └── verify-medicore.mjs              # سويت الاختبارات الآلية والتحقق من العزل
 ```
 
 ---
@@ -183,7 +197,7 @@ npm install
 ```bash
 npm run dev
 ```
-سيفتح التطبيق فوراً على المنفذ `http://localhost:5180` بكامل وظائفه.
+يفتح الواجهة محلياً على `http://localhost:5180`. تسجيل الدخول والبيانات يحتاجان مشروع Supabase مُعدّاً وتطبيق الترحيلات.
 
 ### 3. بناء نسخة الإنتاج (Production Build):
 ```bash
@@ -191,16 +205,9 @@ npm run build
 ```
 يقوم بتشغيل فحص الأنواع الصارم عبر `tsc` وتوليد الحزم المحسنة والمضغوطة داخل مجلد `dist/`.
 
-### 4. تشغيل سويت الاختبارات الآلية (Verification Suite):
-```bash
-node scripts/verify-medicore.mjs
-```
-يقوم بالتحقق التلقائي مع طباعة الأدلة السريرية من:
-- وجود منشأتين طبيتين منفصلتين.
-- العزل التام لبيانات المرضى وعدم قدرة أي منشأة على استرجاع مرضى المنشأة الأخرى.
-- تفعيل واعتراض قاعدة منع الحجز المزدوج.
-- سلامة العمليات المالية وتحديث رصيد الخزينة عند التحصيل.
-- توثيق التوقيع الرقمي بسجل التدقيق الأمني.
+### 4. التحقق
+
+`npm run build` يفحص الأنواع ويُنتج الحزمة فقط؛ لا يثبت عزل قاعدة البيانات أو صحة الترحيلات. لا توجد حالياً مجموعة تحقق حية ضد Supabase، لذلك يلزم اختبار سياسات RLS ومسارات التسجيل والفوترة على مشروع منفصل قبل استقبال بيانات حقيقية.
 
 ---
 
@@ -212,6 +219,9 @@ node scripts/verify-medicore.mjs
    - `20261122000002_rls_policies.sql`
    - `20261122000003_functions_triggers.sql`
    - `20261122000004_seed_data.sql`
+   - `20261123000001_specialties_and_rbac.sql`
+   - `20261124000001_security_hardening.sql`
+   - `20261125000001_security_advisor_fixes.sql`
 3. انسخ الـ `Project URL` و الـ `anon public key` من إعدادات المشروع إلى ملف `.env`:
 ```env
 VITE_SUPABASE_URL=https://your-project.supabase.co

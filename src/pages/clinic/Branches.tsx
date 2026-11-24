@@ -1,212 +1,22 @@
-// ============================================================================
-// MEDICORE – Multi-Branch Management & Doctor Schedules
-// ============================================================================
-
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { useToast } from '../../context/ToastContext';
-import { dbClient } from '../../lib/dbClient';
-import { Building2, Plus, MapPin, Phone, Mail, Clock, CheckCircle2, X } from 'lucide-react';
+import { supabase } from '../../lib/supabase';
+import { Branch } from '../../types/database';
+import { Building2, Plus, MapPin } from 'lucide-react';
 
 export const Branches: React.FC = () => {
-  const { organization } = useAuth();
-  const { locale, t } = useLanguage();
-  const { success } = useToast();
-
+  const { organization, isOrgOwner, user } = useAuth(); const { locale } = useLanguage(); const { success, error } = useToast();
+  const [branches, setBranches] = useState<Branch[]>([]); const [loading, setLoading] = useState(true); const [saving, setSaving] = useState(false); const [open, setOpen] = useState(false);
+  const [nameAr, setNameAr] = useState(''); const [nameEn, setNameEn] = useState(''); const [code, setCode] = useState(''); const [phone, setPhone] = useState(''); const [email, setEmail] = useState(''); const [city, setCity] = useState(''); const [address, setAddress] = useState('');
+  const ar = locale === 'ar'; const orgId = organization?.id || '';
+  const load = useCallback(async () => { if (!supabase || !orgId) { setLoading(false); return; } setLoading(true); const { data, error: queryError } = await supabase.from('branches').select('*').eq('organization_id', orgId).order('created_at'); if (queryError) error(ar?'تعذر تحميل الفروع.':'Could not load branches.'); else setBranches((data||[]) as Branch[]); setLoading(false); },[orgId,ar,error]);
+  useEffect(()=>{void load();},[load]);
+  const addBranch = async (event: React.FormEvent) => { event.preventDefault(); if (!supabase||!organization) return; if (!isOrgOwner) { error(ar?'إضافة الفروع متاحة لمالك المنشأة والمدير العام فقط.':'Only the owner or general manager can add a branch.'); return; } setSaving(true); const { error: insertError } = await supabase.from('branches').insert({ organization_id: organization.id, name_ar:nameAr.trim(), name_en:nameEn.trim(), code:code.trim().toUpperCase(), phone:phone.trim(), email:email.trim()||null, address:address.trim(), city:city.trim(), is_main_branch:false, is_active:true }); setSaving(false); if (insertError) { error(ar?'تعذر إضافة الفرع. تحقق من عدم تكرار الكود.':'Could not add branch. Check whether the code is already in use.'); return; } success(ar?'تم إضافة الفرع.':'Branch added.'); setOpen(false); setNameAr('');setNameEn('');setCode('');setPhone('');setEmail('');setCity('');setAddress(''); await load(); };
   if (!organization) return null;
-  const orgId = organization.id;
-
-  const branches = dbClient.getBranches(orgId);
-  const [showAddModal, setShowAddModal] = useState(false);
-
-  const [nameAr, setNameAr] = useState('');
-  const [nameEn, setNameEn] = useState('');
-  const [code, setCode] = useState('');
-  const [phone, setPhone] = useState('');
-  const [city, setCity] = useState('القاهرة');
-  const [address, setAddress] = useState('');
-
-  const handleCreateBranch = (e: React.FormEvent) => {
-    e.preventDefault();
-    dbClient.createBranch(orgId, {
-      name_ar: nameAr,
-      name_en: nameEn || nameAr,
-      code: code || `BR-${branches.length + 1}`,
-      phone,
-      address,
-      city,
-      is_main_branch: false,
-      is_active: true,
-    });
-
-    success(locale === 'ar' ? 'تم إنشاء وإضافة الفرع الجديد بنجاح' : 'New branch created successfully');
-    setShowAddModal(false);
-    setNameAr('');
-    setNameEn('');
-    setCode('');
-    setPhone('');
-    setAddress('');
-  };
-
-  return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-xl sm:text-2xl font-black text-slate-900 flex items-center gap-2">
-            <Building2 className="w-6 h-6 text-medicore-600" />
-            {t.nav.branches}
-          </h1>
-          <p className="text-slate-500 text-xs sm:text-sm mt-0.5">
-            {locale === 'ar' ? 'إدارة فروع المجمع والمراكز الطبية التابعة ومواعيد العمل' : 'Multi-branch facilities, contact details and working hours'}
-          </p>
-        </div>
-
-        <button
-          type="button"
-          onClick={() => setShowAddModal(true)}
-          className="flex items-center gap-2 px-4 py-2.5 bg-medicore-600 hover:bg-medicore-700 text-white text-xs font-bold rounded-xl shadow-xs self-start sm:self-auto"
-        >
-          <Plus className="w-4 h-4" />
-          <span>{locale === 'ar' ? 'إضافة فرع جديد' : 'Add Branch'}</span>
-        </button>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {branches.map(b => (
-          <div key={b.id} className="bg-white rounded-2xl border border-slate-200 p-5 shadow-2xs space-y-3">
-            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-              <div className="flex items-center gap-2">
-                <span className="font-bold text-sm text-slate-900">
-                  {b[locale === 'ar' ? 'name_ar' : 'name_en']}
-                </span>
-                {b.is_main_branch && (
-                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-medicore-100 text-medicore-800">
-                    {locale === 'ar' ? 'الفرع الرئيسي' : 'Main'}
-                  </span>
-                )}
-              </div>
-              <span className="text-xs font-mono font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded">
-                {b.code}
-              </span>
-            </div>
-
-            <div className="space-y-2 text-xs text-slate-600">
-              <div className="flex items-center gap-2">
-                <MapPin className="w-4 h-4 text-slate-400 shrink-0" />
-                <span>{b.address} ({b.city})</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <Phone className="w-4 h-4 text-slate-400 shrink-0" />
-                <span className="font-mono">{b.phone}</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <Clock className="w-4 h-4 text-slate-400 shrink-0" />
-                <span>السبت - الخميس (09:00 ص - 09:00 م) • الجمعة مغلق</span>
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {showAddModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl animate-scale-in border border-slate-100">
-            <h3 className="font-bold text-slate-900 text-base mb-4 flex items-center gap-2">
-              <Building2 className="w-5 h-5 text-medicore-600" />
-              {locale === 'ar' ? 'إضافة فرع طبي جديد' : 'Add New Branch'}
-            </h3>
-
-            <form onSubmit={handleCreateBranch} className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  {locale === 'ar' ? 'اسم الفرع بالعربية' : 'Branch Name (Arabic)'} *
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={nameAr}
-                  onChange={e => setNameAr(e.target.value)}
-                  placeholder="مثال: فرع الشيخ زايد"
-                  className="w-full text-sm rounded-xl border border-slate-300 p-2.5"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  {locale === 'ar' ? 'كود الفرع' : 'Branch Code'} *
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={code}
-                  onChange={e => setCode(e.target.value)}
-                  placeholder="ZAYED-01"
-                  className="w-full text-sm rounded-xl border border-slate-300 p-2.5 font-mono"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
-                    {locale === 'ar' ? 'رقم الهاتف' : 'Phone'} *
-                  </label>
-                  <input
-                    type="tel"
-                    required
-                    value={phone}
-                    onChange={e => setPhone(e.target.value)}
-                    placeholder="+20 2..."
-                    className="w-full text-sm rounded-xl border border-slate-300 p-2.5"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
-                    {locale === 'ar' ? 'المدينة' : 'City'} *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={city}
-                    onChange={e => setCity(e.target.value)}
-                    className="w-full text-sm rounded-xl border border-slate-300 p-2.5"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  {locale === 'ar' ? 'العنوان التفصيلي' : 'Address'} *
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={address}
-                  onChange={e => setAddress(e.target.value)}
-                  placeholder="شارع، حي، مبنى..."
-                  className="w-full text-sm rounded-xl border border-slate-300 p-2.5"
-                />
-              </div>
-
-              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => setShowAddModal(false)}
-                  className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-xl"
-                >
-                  {t.common.cancel}
-                </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2 text-sm bg-medicore-600 hover:bg-medicore-700 text-white font-bold rounded-xl"
-                >
-                  {locale === 'ar' ? 'حفظ الفرع' : 'Save Branch'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-    </div>
-  );
+  return <main className="space-y-5" dir={ar?'rtl':'ltr'}><header className="flex flex-wrap items-center justify-between gap-3"><div><h1 className="flex items-center gap-2 text-2xl font-black"><Building2 className="h-6 w-6 text-medicore-600"/>{ar?'الفروع':'Branches'}</h1><p className="mt-1 text-sm text-slate-500">{ar?'بيانات الفروع الفعلية المسجلة للمنشأة.':'Facility branches stored in the database.'}</p></div>{isOrgOwner&&<button onClick={()=>setOpen(true)} className="inline-flex items-center gap-2 rounded-xl bg-medicore-600 px-4 py-2.5 text-sm font-bold text-white"><Plus className="h-4 w-4"/>{ar?'إضافة فرع':'Add branch'}</button>}</header>
+    <section className="grid gap-3 md:grid-cols-2">{loading?<div className="rounded-2xl border bg-white p-8 text-sm text-slate-500">{ar?'جار التحميل...':'Loading...'}</div>:branches.length===0?<div className="rounded-2xl border bg-white p-8 text-sm text-slate-500">{ar?'لا توجد فروع متاحة.':'No branches available.'}</div>:branches.map(branch=><article key={branch.id} className="rounded-2xl border border-slate-200 bg-white p-5"><div className="flex items-start justify-between gap-3"><div className="flex items-center gap-3"><span className="grid h-11 w-11 place-items-center rounded-xl bg-medicore-50 text-medicore-700"><MapPin/></span><div><h2 className="font-black">{ar?branch.name_ar:branch.name_en}</h2><p className="mt-1 text-xs text-slate-500">{branch.code} · {branch.city}</p></div></div><span className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${branch.is_active?'bg-emerald-100 text-emerald-800':'bg-slate-100 text-slate-500'}`}>{branch.is_active?(ar?'نشط':'Active'):(ar?'موقوف':'Inactive')}</span></div><div className="mt-4 space-y-1 text-xs text-slate-600"><p>{branch.address}</p><p>{branch.phone}{branch.email?` · ${branch.email}`:''}</p>{branch.is_main_branch&&<p className="mt-2 font-bold text-medicore-700">{ar?'الفرع الرئيسي':'Main branch'}</p>}</div></article>)}</section>
+    {open&&<div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/50 p-4"><form onSubmit={addBranch} className="max-h-[90vh] w-full max-w-xl space-y-4 overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl"><h2 className="text-lg font-black">{ar?'إضافة فرع جديد':'Add a branch'}</h2><div className="grid gap-3 sm:grid-cols-2">{[[ar?'اسم الفرع بالعربية':'Arabic branch name',nameAr,setNameAr],[ar?'اسم الفرع بالإنجليزية':'English branch name',nameEn,setNameEn],[ar?'كود الفرع':'Branch code',code,setCode],[ar?'الهاتف':'Phone',phone,setPhone],[ar?'البريد الإلكتروني':'Email',email,setEmail],[ar?'المدينة':'City',city,setCity],[ar?'العنوان':'Address',address,setAddress]].map(([label,value,setter])=><label key={String(label)} className="text-xs font-bold">{String(label)}<input required={label!== (ar?'البريد الإلكتروني':'Email')} type={label===(ar?'البريد الإلكتروني':'Email')?'email':'text'} maxLength={500} value={String(value)} onChange={e=>(setter as React.Dispatch<React.SetStateAction<string>>)(e.target.value)} className="mt-1 w-full rounded-xl border p-2.5 text-sm"/></label>)}</div><div className="flex justify-end gap-2 border-t pt-4"><button type="button" onClick={()=>setOpen(false)} className="rounded-xl border px-4 py-2 text-sm font-bold">{ar?'إلغاء':'Cancel'}</button><button disabled={saving} className="rounded-xl bg-medicore-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-50">{saving?(ar?'جار الحفظ...':'Saving...'):(ar?'حفظ الفرع':'Save branch')}</button></div></form></div>}
+  </main>;
 };

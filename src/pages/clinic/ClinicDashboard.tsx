@@ -3,10 +3,11 @@
 // Realtime Reception Waiting Queue, Daily Financial Metrics & Patient Flow
 // ============================================================================
 
-import React from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
-import { dbClient } from '../../lib/dbClient';
+import { supabase } from '../../lib/supabase';
+import { Appointment, Doctor } from '../../types/database';
 import { 
   Users, Calendar, Clock, DollarSign, Stethoscope, 
   CheckCircle2, ArrowRight, UserCheck, AlertCircle, Plus
@@ -17,33 +18,31 @@ interface ClinicDashboardProps {
 }
 
 export const ClinicDashboard: React.FC<ClinicDashboardProps> = ({ onNavigate }) => {
-  const { organization, activeBranch } = useAuth();
+  const { organization, activeBranch, availableBranches } = useAuth();
   const { locale, t } = useLanguage();
+  const [patientsCount,setPatientsCount]=useState(0);const [todayApts,setTodayApts]=useState<Appointment[]>([]);const [doctors,setDoctors]=useState<(Doctor&{user?:{name_ar:string;name_en:string}})[]>([]);const [totalCashboxBalance,setTotalCashboxBalance]=useState(0);const [todayRevenue,setTodayRevenue]=useState(0);const [loading,setLoading]=useState(true);
 
-  if (!organization) return null;
-
-  const orgId = organization.id;
-  const branchId = activeBranch?.id;
-
-  const patients = dbClient.getPatients(orgId);
-  const appointments = dbClient.getAppointments(orgId, { branchId });
-  const doctors = dbClient.getDoctors(orgId);
-  const invoices = dbClient.getInvoices(orgId);
-  const cashboxes = dbClient.getCashboxes(orgId);
-
-  // Today's Date String YYYY-MM-DD
-  const todayStr = new Date().toISOString().split('T')[0];
-  const todayApts = appointments.filter(a => a.appointment_date === todayStr);
+  const orgId = organization?.id || '';
+  const todayStr = (()=>{const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;})();
+  const load=useCallback(async()=>{if(!supabase||!orgId){setLoading(false);return;}setLoading(true);const todayStart=new Date(`${todayStr}T00:00:00`);const tomorrow=new Date(todayStart);tomorrow.setDate(tomorrow.getDate()+1);
+    const [patientResult,appointmentResult,boxResult,paymentResult]=await Promise.all([
+      supabase.from('patients').select('id',{count:'exact',head:true}).eq('organization_id',orgId).eq('is_active',true),
+      (()=>{let q=supabase.from('appointments').select('*,patient:patients(id,mrn,first_name_ar,last_name_ar),doctor:doctors(id,specialty_title_ar,specialty_title_en,user:users(name_ar,name_en))').eq('organization_id',orgId).eq('appointment_date',todayStr).order('start_time');if(activeBranch?.id)q=q.eq('branch_id',activeBranch.id);return q;})(),
+      activeBranch?.id?supabase.from('cashboxes').select('current_balance').eq('organization_id',orgId).eq('branch_id',activeBranch.id).eq('is_active',true):Promise.resolve({data:[],error:null}),
+      (()=>{let q=supabase.from('payments').select('amount').eq('organization_id',orgId).gte('payment_date',todayStart.toISOString()).lt('payment_date',tomorrow.toISOString()).eq('is_reversal',false);if(activeBranch?.id)q=q.eq('branch_id',activeBranch.id);return q;})(),
+    ]);
+    if(patientResult.error||appointmentResult.error||boxResult.error||paymentResult.error){setLoading(false);return;}
+    setPatientsCount(patientResult.count||0);setTodayApts((appointmentResult.data||[]) as unknown as Appointment[]);setTotalCashboxBalance((boxResult.data||[]).reduce((s,row)=>s+Number(row.current_balance||0),0));setTodayRevenue((paymentResult.data||[]).reduce((s,row)=>s+Number(row.amount||0),0));
+    if(activeBranch?.id){const {data:access}=await supabase.from('user_branch_access').select('user_id').eq('organization_id',orgId).eq('branch_id',activeBranch.id);const ids=(access||[]).map(x=>x.user_id);if(ids.length){const {data:docRows}=await supabase.from('doctors').select('*,user:users(name_ar,name_en)').eq('organization_id',orgId).eq('is_active',true).in('user_id',ids);setDoctors((docRows||[]) as unknown as typeof doctors);}else setDoctors([]);}else{setDoctors([]);}setLoading(false);
+  },[orgId,activeBranch?.id,todayStr]);
+  useEffect(()=>{void load();},[load]);
 
   const waitingQueue = todayApts.filter(a => ['checked_in', 'waiting', 'in_consultation'].includes(a.status));
   const completedToday = todayApts.filter(a => a.status === 'completed').length;
 
-  const totalCashboxBalance = cashboxes.reduce((sum, cb) => sum + cb.current_balance, 0);
+  const handleStartConsultation=async(id:string)=>{if(!supabase)return;const {error}=await supabase.from('appointments').update({status:'in_consultation'}).eq('id',id).eq('organization_id',orgId);if(error)return;await load();onNavigate('consultation');};
 
-  // Today's collected revenue
-  const todayRevenue = invoices
-    .filter(i => i.issue_date === todayStr)
-    .reduce((sum, i) => sum + i.paid_amount, 0);
+  if (!organization) return null;
 
   return (
     <div className="space-y-6">
@@ -87,7 +86,7 @@ export const ClinicDashboard: React.FC<ClinicDashboardProps> = ({ onNavigate }) 
         <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs flex items-center justify-between">
           <div>
             <p className="text-xs font-bold text-slate-500">{t.emr.patientFile}</p>
-            <p className="text-2xl font-black text-slate-900 mt-1">{patients.length}</p>
+            <p className="text-2xl font-black text-slate-900 mt-1">{loading?'—':patientsCount}</p>
             <p className="text-[11px] text-medicore-600 font-semibold mt-1">
               {locale === 'ar' ? 'سجل طبي إلكتروني موثق' : 'EMR Records'}
             </p>
@@ -101,7 +100,7 @@ export const ClinicDashboard: React.FC<ClinicDashboardProps> = ({ onNavigate }) 
         <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs flex items-center justify-between">
           <div>
             <p className="text-xs font-bold text-slate-500">{t.appointments.schedule} (اليوم)</p>
-            <p className="text-2xl font-black text-slate-900 mt-1">{todayApts.length}</p>
+            <p className="text-2xl font-black text-slate-900 mt-1">{loading?'—':todayApts.length}</p>
             <p className="text-[11px] text-emerald-600 font-semibold mt-1">
               {completedToday} {t.appointments.status_completed}
             </p>
@@ -115,7 +114,7 @@ export const ClinicDashboard: React.FC<ClinicDashboardProps> = ({ onNavigate }) 
         <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs flex items-center justify-between">
           <div>
             <p className="text-xs font-bold text-slate-500">{t.nav.reception}</p>
-            <p className="text-2xl font-black text-amber-600 mt-1">{waitingQueue.length}</p>
+            <p className="text-2xl font-black text-amber-600 mt-1">{loading?'—':waitingQueue.length}</p>
             <p className="text-[11px] text-slate-400 font-medium mt-1">
               {locale === 'ar' ? 'مرضى في صالة الانتظار الآن' : 'In waiting room now'}
             </p>
@@ -164,7 +163,7 @@ export const ClinicDashboard: React.FC<ClinicDashboardProps> = ({ onNavigate }) 
           </div>
 
           <div className="divide-y divide-slate-100">
-            {todayApts.length === 0 ? (
+            {loading ? <div className="p-10 text-center text-slate-400 text-xs">{locale==='ar'?'جار تحميل بيانات اليوم...':'Loading today’s data...'}</div> : todayApts.length === 0 ? (
               <div className="p-8 text-center text-slate-400 text-sm">
                 <Calendar className="w-8 h-8 mx-auto mb-2 opacity-40" />
                 <p>{locale === 'ar' ? 'لا توجد مواعيد مسجلة لهذا اليوم حتى الآن' : 'No appointments scheduled for today'}</p>
@@ -207,8 +206,7 @@ export const ClinicDashboard: React.FC<ClinicDashboardProps> = ({ onNavigate }) 
                         <button
                           type="button"
                           onClick={() => {
-                            dbClient.updateAppointmentStatus(apt.id, 'in_consultation');
-                            onNavigate('consultation');
+                            void handleStartConsultation(apt.id);
                           }}
                           className="px-3 py-1 bg-medicore-600 hover:bg-medicore-700 text-white text-xs font-bold rounded-lg shadow-xs"
                         >

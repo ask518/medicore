@@ -29,9 +29,9 @@ export const APP_CONFIG: AppConfig = {
   defaultCurrency: env.VITE_CURRENCY_CODE || 'EGP',
   defaultCurrencySymbol: env.VITE_CURRENCY_SYMBOL || 'ج.م',
   isEnterpriseMode: profile === 'enterprise',
-  enterpriseOrgName: env.VITE_ENTERPRISE_ORG_NAME || 'مجمع النور الطبي التخصصي',
+  enterpriseOrgName: env.VITE_ENTERPRISE_ORG_NAME || '',
   enterpriseLogoUrl: env.VITE_ENTERPRISE_LOGO_URL || '/favicon.svg',
-  enableAiAssistant: env.VITE_ENABLE_AI_ASSISTANT !== 'false',
+  enableAiAssistant: env.VITE_ENABLE_AI_ASSISTANT === 'true',
   supabaseUrl: env.VITE_SUPABASE_URL || '',
   supabaseAnonKey: env.VITE_SUPABASE_ANON_KEY || '',
 };

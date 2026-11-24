@@ -5,7 +5,9 @@
 
 import React, { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
-import { LanguageProvider, useLanguage } from './context/LanguageContext';
+import { AuthScreen } from './components/auth/AuthScreen';
+import { useLanguage } from './context/LanguageContext';
+import { LanguageProvider } from './context/LanguageContext';
 import { ToastProvider } from './context/ToastContext';
 import { Navbar } from './components/layout/Navbar';
 import { Sidebar } from './components/layout/Sidebar';
@@ -20,6 +22,8 @@ import { Specialties } from './pages/clinic/Specialties';
 import { Laboratory } from './pages/clinic/Laboratory';
 import { Radiology } from './pages/clinic/Radiology';
 import { Billing } from './pages/clinic/Billing';
+import { Insurance } from './pages/clinic/Insurance';
+import { Inventory } from './pages/clinic/Inventory';
 import { Branches } from './pages/clinic/Branches';
 import { Staff } from './pages/clinic/Staff';
 import { Reports } from './pages/clinic/Reports';
@@ -27,9 +31,11 @@ import { DataMigration } from './pages/clinic/DataMigration';
 import { Settings } from './pages/clinic/Settings';
 import { HR } from './pages/clinic/HR';
 import { PatientPortal } from './pages/patient-portal/PatientPortal';
+import { OrganizationOnboarding } from './pages/OrganizationOnboarding';
 
 const AppContent: React.FC = () => {
-  const { user, isSuperAdmin, isPatient } = useAuth();
+  const { user, session, isLoading, logout, isSuperAdmin, isPatient } = useAuth();
+  const { locale } = useLanguage();
   const [currentTab, setCurrentTab] = useState<string>('dashboard');
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
@@ -43,6 +49,11 @@ const AppContent: React.FC = () => {
       setCurrentTab('dashboard');
     }
   }, [user?.role, isSuperAdmin, isPatient]);
+
+  if (isLoading) return <div className="grid min-h-screen place-items-center text-sm font-bold text-slate-600">{locale === 'ar' ? 'جار التحقق من جلسة الدخول...' : 'Checking sign-in session...'}</div>;
+  if (!session) return <AuthScreen />;
+  if (!user) return <div className="grid min-h-screen place-items-center bg-slate-50 p-6" dir={locale === 'ar' ? 'rtl' : 'ltr'}><section className="max-w-md rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-xl"><h1 className="text-xl font-black text-slate-900">{locale === 'ar' ? 'الحساب بانتظار تفعيل المنشأة' : 'Account activation pending'}</h1><p className="mt-3 text-sm leading-7 text-slate-600">{locale === 'ar' ? 'لم يتم تجهيز ملف مستخدم نشط لهذا الحساب. تواصل مع مسؤول المنشأة.' : 'This account has no active staff profile. Contact your facility administrator.'}</p><button type="button" onClick={() => void logout()} className="mt-6 rounded-xl bg-rose-600 px-5 py-2.5 text-sm font-bold text-white">{locale === 'ar' ? 'تسجيل الخروج' : 'Sign out'}</button></section></div>;
+  if (!user.organization_id && !isSuperAdmin) return <OrganizationOnboarding />;
 
   const renderActiveView = () => {
     // If super admin is active and current tab is not a platform tab, redirect immediately to super admin dashboard
@@ -70,8 +81,9 @@ const AppContent: React.FC = () => {
       case 'dashboard':
         return <ClinicDashboard onNavigate={(tab) => setCurrentTab(tab)} />;
       case 'patients':
-      case 'prescriptions':
         return <Patients />;
+      case 'prescriptions':
+        return <Consultation />;
       case 'appointments':
         return <Appointments />;
       case 'consultation':
@@ -85,6 +97,10 @@ const AppContent: React.FC = () => {
       case 'billing':
       case 'commissions':
         return <Billing />;
+      case 'insurance':
+        return <Insurance />;
+      case 'inventory':
+        return <Inventory />;
       case 'branches':
         return <Branches />;
       case 'staff':
@@ -105,6 +121,7 @@ const AppContent: React.FC = () => {
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
       <Navbar onToggleMobileSidebar={() => setMobileSidebarOpen(!mobileSidebarOpen)} />
+      <div role="status" className="border-b border-amber-300 bg-amber-50 px-4 py-2 text-center text-xs font-semibold leading-5 text-amber-950">{locale === 'ar' ? 'تنبيه تشغيل: يلزم تطبيق ترحيلات Supabase ونشر invite-staff والتحقق منهما قبل إدخال بيانات حقيقية. المرضى والمواعيد والفريق والكشوفات والروشتات والفواتير لها مسارات سحابية. المختبر والأشعة والموارد البشرية والتخصصات وبوابة المريض متوقفة حتى اكتمال الحفظ والصلاحيات.' : 'Setup notice: apply and validate the Supabase migrations and deploy invite-staff before entering real data. Patients, appointments, staff, consultations, prescriptions, and billing have cloud workflows. Lab, radiology, HR, specialties, and patient portal remain disabled until their persistence and access controls are complete.'}</div>
 
       <div className="flex flex-1">
         <Sidebar

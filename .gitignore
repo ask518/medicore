@@ -32,6 +32,9 @@ build/
 .env.test.local
 .env.production.local
 
+# Supabase CLI local project metadata
+supabase/.temp/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

@@ -1,251 +1,40 @@
-// ============================================================================
-// MEDICORE – Historical Data Migration & Legacy Import Engine
-// Excel / CSV File Upload, Column Mapping, Duplicate Detection & Safe Ingestion
-// ============================================================================
-
 import React, { useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { useToast } from '../../context/ToastContext';
-import { dbClient } from '../../lib/dbClient';
-import { 
-  UploadCloud, FileSpreadsheet, CheckCircle2, AlertTriangle, 
-  ArrowRight, Check, X, RefreshCw
-} from 'lucide-react';
+import { supabase } from '../../lib/supabase';
+import { UploadCloud } from 'lucide-react';
+
+type PatientRow = { first_name_ar: string; last_name_ar: string; phone: string; date_of_birth: string; gender: 'male' | 'female'; blood_group?: string; national_id?: string };
+function csvRows(text: string): string[][] {
+  const out: string[][] = []; let cells: string[] = []; let value = ''; let quoted = false;
+  for (let i = 0; i < text.length; i++) { const c = text[i]; if (c === '"' && quoted && text[i + 1] === '"') { value += '"'; i++; } else if (c === '"') quoted = !quoted; else if (c === ',' && !quoted) { cells.push(value.trim()); value = ''; } else if ((c === '\n' || c === '\r') && !quoted) { if (c === '\r' && text[i + 1] === '\n') i++; cells.push(value.trim()); if (cells.some(Boolean)) out.push(cells); cells = []; value = ''; } else value += c; }
+  cells.push(value.trim()); if (cells.some(Boolean)) out.push(cells); return out;
+}
 
 export const DataMigration: React.FC = () => {
-  const { organization, activeBranch } = useAuth();
-  const { locale, t } = useLanguage();
-  const { success, warning } = useToast();
-
+  const { organization, activeBranch } = useAuth(); const { locale } = useLanguage(); const { success, error } = useToast();
+  const [rows, setRows] = useState<PatientRow[]>([]); const [fileName, setFileName] = useState(''); const [message, setMessage] = useState(''); const [busy, setBusy] = useState(false); const ar = locale === 'ar';
+  const selectFile = async (file?: File) => {
+    if (!file) return;
+    if (!file.name.toLowerCase().endsWith('.csv') || file.size > 5 * 1024 * 1024) { error(ar ? 'اختر CSV بحد أقصى 5 ميجابايت.' : 'Choose a CSV up to 5 MB.'); return; }
+    const matrix = csvRows(await file.text()); const headers = matrix.shift()?.map(x => x.toLowerCase()) || []; const required = ['first_name_ar','last_name_ar','phone','date_of_birth','gender'];
+    if (required.some(x => !headers.includes(x))) { error(`${ar ? 'الأعمدة المطلوبة' : 'Required columns'}: ${required.join(', ')}`); return; }
+    if (matrix.length > 1000) { error(ar ? 'الحد الأقصى 1000 سجل.' : 'Maximum 1,000 records.'); return; }
+    const at = (key: string, row: string[]) => row[headers.indexOf(key)] || '';
+    const parsed: PatientRow[] = [];
+    for (const row of matrix) { const gender = at('gender', row).toLowerCase(); const dob = at('date_of_birth', row); const first = at('first_name_ar', row); const last = at('last_name_ar', row); const phone = at('phone', row); const date = new Date(`${dob}T00:00:00Z`); if (!first || !last || !phone || !/^\d{4}-\d{2}-\d{2}$/.test(dob) || Number.isNaN(date.getTime()) || date.toISOString().slice(0,10) !== dob || !['male','female'].includes(gender)) { error(ar ? 'صف غير صالح: راجع الأسماء والهاتف والتاريخ والنوع.' : 'Invalid row: check names, phone, date, and gender.'); return; } parsed.push({ first_name_ar:first, last_name_ar:last, phone, date_of_birth:dob, gender:gender as 'male'|'female', blood_group:at('blood_group',row) || undefined, national_id:at('national_id',row) || undefined }); }
+    setRows(parsed); setFileName(file.name); setMessage('');
+  };
+  const importRows = async () => {
+    if (!supabase || !organization || rows.length === 0) return;
+    setBusy(true); const phones = [...new Set(rows.map(r => r.phone))]; const { data: found, error: duplicateError } = await supabase.from('patients').select('phone').eq('organization_id', organization.id).in('phone', phones);
+    if (duplicateError) { setBusy(false); error(ar ? 'تعذر فحص التكرار.' : 'Could not check duplicates.'); return; }
+    const existing = new Set((found || []).map(r => r.phone)); const added = new Set<string>(); const ready = rows.filter(r => { if (existing.has(r.phone) || added.has(r.phone)) return false; added.add(r.phone); return true; }).map(r => ({ ...r, organization_id: organization.id, primary_branch_id: activeBranch?.id || null, mrn: `MRN-${new Date().getFullYear()}-${crypto.randomUUID().slice(0,8).toUpperCase()}`, blood_group: r.blood_group || 'unknown', is_active: true }));
+    const result = ready.length ? await supabase.from('patients').insert(ready) : { error: null };
+    setBusy(false); if (result.error) { error(ar ? 'فشل الحفظ في قاعدة البيانات.' : 'Database insert failed.'); return; }
+    const note = ar ? `تم حفظ ${ready.length} وتجاوز ${rows.length-ready.length} مكرر.` : `Saved ${ready.length}; skipped ${rows.length-ready.length} duplicates.`; setMessage(note); success(note); setRows([]);
+  };
   if (!organization) return null;
-  const orgId = organization.id;
-
-  const [step, setStep] = useState<number>(1);
-  const [fileName, setFileName] = useState<string>('');
-  const [previewRows, setPreviewRows] = useState<any[]>([]);
-  const [importSummary, setImportSummary] = useState<{ imported: number; duplicates: number } | null>(null);
-
-  // Simulated CSV parsed sample
-  const handleSimulateUpload = (type: 'sample_patients' | 'custom') => {
-    setFileName(type === 'sample_patients' ? 'legacy_patients_2025.xlsx' : 'custom_data.csv');
-    setPreviewRows([
-      { row: 1, name: 'محمد عبد الله خليل', phone: '+20 102 345 6789', dob: '1985-04-12', blood: 'O+', gender: 'male', status: 'valid' },
-      { row: 2, name: 'فاطمة حسن إبراهيم', phone: '+20 114 567 8901', dob: '1992-09-20', blood: 'A+', gender: 'female', status: 'valid' },
-      { row: 3, name: 'أحمد محمود حسن', phone: '+20 122 333 4444', dob: '1990-05-14', blood: 'O+', gender: 'male', status: 'duplicate' },
-      { row: 4, name: 'ياسر السيد منصور', phone: '+20 100 888 9999', dob: '1979-11-05', blood: 'B+', gender: 'male', status: 'valid' },
-    ]);
-    setStep(2);
-  };
-
-  const handleConfirmImport = () => {
-    // Ingest valid rows into database
-    const validRows = previewRows.filter(r => r.status === 'valid');
-    validRows.forEach(r => {
-      const parts = r.name.split(' ');
-      dbClient.createPatient(orgId, {
-        primary_branch_id: activeBranch?.id,
-        first_name_ar: parts[0] || 'مريض',
-        last_name_ar: parts.slice(1).join(' ') || 'سابق',
-        date_of_birth: r.dob,
-        gender: r.gender,
-        blood_group: r.blood,
-        phone: r.phone,
-        is_active: true,
-      });
-    });
-
-    setImportSummary({
-      imported: validRows.length,
-      duplicates: previewRows.filter(r => r.status === 'duplicate').length,
-    });
-    setStep(3);
-    success(locale === 'ar' ? `تم استيراد ${validRows.length} ملف مريض بنجاح` : `Successfully imported ${validRows.length} patient records`);
-  };
-
-  const handleReset = () => {
-    setStep(1);
-    setFileName('');
-    setPreviewRows([]);
-    setImportSummary(null);
-  };
-
-  return (
-    <div className="space-y-6 max-w-4xl mx-auto">
-      <div>
-        <h1 className="text-xl sm:text-2xl font-black text-slate-900 flex items-center gap-2">
-          <UploadCloud className="w-6 h-6 text-medicore-600" />
-          {t.nav.dataMigration}
-        </h1>
-        <p className="text-slate-500 text-xs sm:text-sm mt-0.5">
-          {locale === 'ar' ? 'معالج استيراد بيانات وسجلات المرضى السابقة من ملفات Excel و CSV مع التحقق ومنع التكرار' : 'Legacy Data Import Wizard: Excel & CSV patient records ingestion with duplicate detection'}
-        </p>
-      </div>
-
-      {/* Stepper Header */}
-      <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs flex items-center justify-between text-xs font-bold">
-        <div className={`flex items-center gap-2 ${step >= 1 ? 'text-medicore-600' : 'text-slate-400'}`}>
-          <span className="w-6 h-6 rounded-full bg-medicore-100 flex items-center justify-center">1</span>
-          <span>{locale === 'ar' ? 'رفع الملف' : 'Upload File'}</span>
-        </div>
-        <div className="h-0.5 w-12 bg-slate-200" />
-        <div className={`flex items-center gap-2 ${step >= 2 ? 'text-medicore-600' : 'text-slate-400'}`}>
-          <span className="w-6 h-6 rounded-full bg-medicore-100 flex items-center justify-center">2</span>
-          <span>{locale === 'ar' ? 'مطابقة الأعمدة والتحقق' : 'Mapping & Validation'}</span>
-        </div>
-        <div className="h-0.5 w-12 bg-slate-200" />
-        <div className={`flex items-center gap-2 ${step >= 3 ? 'text-emerald-600' : 'text-slate-400'}`}>
-          <span className="w-6 h-6 rounded-full bg-emerald-100 flex items-center justify-center">3</span>
-          <span>{locale === 'ar' ? 'تقرير الاستيراد' : 'Import Complete'}</span>
-        </div>
-      </div>
-
-      {/* Step 1: Upload */}
-      {step === 1 && (
-        <div className="bg-white rounded-3xl border-2 border-dashed border-slate-300 p-10 text-center space-y-4 hover:border-medicore-500 transition-colors">
-          <FileSpreadsheet className="w-16 h-16 mx-auto text-emerald-600" />
-          <div>
-            <h3 className="font-bold text-base text-slate-900">
-              {locale === 'ar' ? 'اسحب وأفلت ملف Excel أو CSV هنا' : 'Drag & drop Excel or CSV file here'}
-            </h3>
-            <p className="text-xs text-slate-500 mt-1">
-              يدعم ملفات (.xlsx, .xls, .csv) المتضمنة الاسم، الهاتف، تاريخ الميلاد، والتشخيص
-            </p>
-          </div>
-
-          <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
-            <button
-              type="button"
-              onClick={() => handleSimulateUpload('sample_patients')}
-              className="px-5 py-2.5 bg-medicore-600 hover:bg-medicore-700 text-white text-xs font-bold rounded-xl shadow-xs"
-            >
-              {locale === 'ar' ? 'تجربة استيراد نموذج مرضى سابقين (Demo Excel)' : 'Load Demo Patients Excel'}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Step 2: Preview & Validation */}
-      {step === 2 && (
-        <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-2xs space-y-5">
-          <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-            <div>
-              <h3 className="font-bold text-base text-slate-900">{fileName}</h3>
-              <p className="text-xs text-slate-500 mt-0.5">
-                {locale === 'ar' ? `تم اكتشاف ${previewRows.length} سجلات، تم فحص التكرار تلقائياً` : `${previewRows.length} rows detected with automatic duplicate scan`}
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={handleReset}
-              className="text-xs text-slate-500 hover:text-slate-800"
-            >
-              {locale === 'ar' ? 'إلغاء واختيار ملف آخر' : 'Choose another file'}
-            </button>
-          </div>
-
-          <div className="overflow-x-auto">
-            <table className="w-full text-start text-xs">
-              <thead className="bg-slate-50 text-slate-500 font-bold border-b border-slate-200">
-                <tr>
-                  <th className="p-3 text-start">#</th>
-                  <th className="p-3 text-start">{t.emr.fullName}</th>
-                  <th className="p-3 text-start">{t.emr.phone}</th>
-                  <th className="p-3 text-start">{t.emr.birthDate}</th>
-                  <th className="p-3 text-start">{t.emr.bloodGroup}</th>
-                  <th className="p-3 text-start">{t.common.status}</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {previewRows.map(r => (
-                  <tr key={r.row} className="hover:bg-slate-50/50">
-                    <td className="p-3 font-mono text-slate-400">{r.row}</td>
-                    <td className="p-3 font-bold text-slate-900">{r.name}</td>
-                    <td className="p-3 font-mono">{r.phone}</td>
-                    <td className="p-3">{r.dob}</td>
-                    <td className="p-3 font-bold text-rose-600">{r.blood}</td>
-                    <td className="p-3">
-                      {r.status === 'valid' ? (
-                        <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
-                          {locale === 'ar' ? 'سليم وجاهز' : 'Ready'}
-                        </span>
-                      ) : (
-                        <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 flex items-center gap-1">
-                          <AlertTriangle className="w-3 h-3" />
-                          <span>{locale === 'ar' ? 'مكرر مسجل سابقاً' : 'Duplicate'}</span>
-                        </span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-900 flex items-center gap-2">
-            <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
-            <span>
-              {locale === 'ar' 
-                ? 'وفقاً لقواعد النظام الآمنة: لن يتم الكتابة فوق السجلات الموجودة مسبقاً، وسيتم استيراد السجلات الجديدة فقط.'
-                : 'According to data integrity rules: existing patients will not be overwritten.'}
-            </span>
-          </div>
-
-          <div className="flex items-center justify-end gap-2 pt-2">
-            <button
-              type="button"
-              onClick={handleReset}
-              className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-xl"
-            >
-              {t.common.cancel}
-            </button>
-            <button
-              type="button"
-              onClick={handleConfirmImport}
-              className="px-5 py-2.5 bg-medicore-600 hover:bg-medicore-700 text-white font-bold text-xs rounded-xl shadow-xs"
-            >
-              {locale === 'ar' ? 'بدء الاستيراد الفعلي للسجلات السليمة' : 'Confirm Import'}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Step 3: Complete Report */}
-      {step === 3 && importSummary && (
-        <div className="bg-white rounded-3xl border border-slate-200 p-8 text-center space-y-4 shadow-2xs">
-          <div className="w-16 h-16 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto">
-            <CheckCircle2 className="w-8 h-8" />
-          </div>
-          <div>
-            <h3 className="font-black text-xl text-slate-900">
-              {locale === 'ar' ? 'اكتملت عملية الاستيراد بنجاح' : 'Import Process Completed'}
-            </h3>
-            <p className="text-xs text-slate-500 mt-1">
-              تم إنشاء أرقام طبية (MRN) جديدة وحفظ كافة السجلات بسجل التدقيق الأمني
-            </p>
-          </div>
-
-          <div className="flex items-center justify-center gap-6 py-3">
-            <div className="text-center">
-              <span className="text-3xl font-black text-emerald-600">{importSummary.imported}</span>
-              <p className="text-xs text-slate-500 mt-0.5">{locale === 'ar' ? 'سجلات تم استيرادها' : 'Imported'}</p>
-            </div>
-            <div className="h-8 w-px bg-slate-200" />
-            <div className="text-center">
-              <span className="text-3xl font-black text-amber-600">{importSummary.duplicates}</span>
-              <p className="text-xs text-slate-500 mt-0.5">{locale === 'ar' ? 'سجلات مكررة تم حمايتها' : 'Duplicates Skipped'}</p>
-            </div>
-          </div>
-
-          <button
-            type="button"
-            onClick={handleReset}
-            className="px-6 py-2.5 bg-medicore-600 text-white font-bold text-xs rounded-xl shadow-xs hover:bg-medicore-700"
-          >
-            {locale === 'ar' ? 'استيراد ملف إضافي' : 'Import Another File'}
-          </button>
-        </div>
-      )}
-    </div>
-  );
+  return <main className="mx-auto max-w-4xl space-y-5" dir={ar?'rtl':'ltr'}><header><h1 className="text-2xl font-black"><UploadCloud className="me-2 inline h-6 w-6"/>{ar?'استيراد ملفات المرضى':'Import patient records'}</h1><p className="mt-2 text-sm text-slate-600">{ar?'استيراد CSV فعلي. المطلوب: first_name_ar,last_name_ar,phone,date_of_birth,gender (male/female). الاختياري: blood_group,national_id.':'Real CSV import. Required: first_name_ar,last_name_ar,phone,date_of_birth,gender (male/female). Optional: blood_group,national_id.'}</p></header><section className="space-y-4 rounded-2xl border bg-white p-6"><input type="file" accept=".csv,text/csv" onChange={e=>void selectFile(e.target.files?.[0])}/>{fileName&&<p className="text-xs text-slate-500">{fileName} · {rows.length} {ar?'سجل':'rows'}</p>}{rows.length>0&&<><div className="max-h-72 overflow-auto border"><table className="w-full text-xs"><thead><tr>{['first_name_ar','last_name_ar','phone','date_of_birth','gender'].map(h=><th key={h} className="p-2 text-start">{h}</th>)}</tr></thead><tbody>{rows.slice(0,20).map((r,i)=><tr key={i} className="border-t"><td className="p-2">{r.first_name_ar}</td><td>{r.last_name_ar}</td><td>{r.phone}</td><td>{r.date_of_birth}</td><td>{r.gender}</td></tr>)}</tbody></table></div><button disabled={busy} onClick={()=>void importRows()} className="rounded-xl bg-medicore-600 px-5 py-3 font-bold text-white disabled:opacity-50">{busy?(ar?'جار الحفظ':'Saving'):(ar?'تحقق واحفظ':'Validate and save')}</button></>}{message&&<p role="status" className="bg-emerald-50 p-3 text-sm text-emerald-800">{message}</p>}</section></main>;
 };

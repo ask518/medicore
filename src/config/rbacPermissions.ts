@@ -16,6 +16,8 @@ export type RbacModule =
   | 'laboratory'
   | 'radiology'
   | 'billing'
+  | 'insurance'
+  | 'inventory'
   | 'commissions'
   | 'branches'
   | 'staff'
@@ -300,6 +302,7 @@ export const hasPermission = (
   if (role === 'receptionist') {
     if (['patients', 'appointments'].includes(module)) return ['view', 'create', 'edit', 'print'].includes(action);
     if (module === 'billing') return ['view', 'create'].includes(action);
+    if (module === 'insurance') return action === 'view';
     if (module === 'hr') return ['view', 'create'].includes(action);
     if (module === 'dashboard') return action === 'view';
     // Receptionist CANNOT modify or edit consultations
@@ -309,11 +312,19 @@ export const hasPermission = (
 
   // 12. Accountant
   if (role === 'accountant') {
-    if (['billing', 'commissions', 'reports', 'hr'].includes(module)) return true;
+    if (['billing', 'insurance', 'commissions', 'reports', 'hr'].includes(module)) return true;
+    if (module === 'inventory') return ['view', 'export', 'print'].includes(action);
     if (['patients', 'appointments'].includes(module)) return action === 'view';
     if (module === 'dashboard') return action === 'view';
     // Accountant CANNOT modify clinical notes or medical records
     if (['consultations', 'prescriptions', 'laboratory', 'radiology'].includes(module)) return false;
+    return false;
+  }
+
+  // 12b. Insurance Claims Officer
+  if (role === 'insurance_officer') {
+    if (module === 'insurance') return true;
+    if (['patients', 'billing', 'reports', 'dashboard'].includes(module)) return ['view', 'export', 'print'].includes(action);
     return false;
   }
 
@@ -333,8 +344,16 @@ export const hasPermission = (
 
   // 15. Pharmacist
   if (role === 'pharmacist') {
+    if (module === 'inventory') return true;
     if (module === 'prescriptions') return ['view', 'approve'].includes(action);
-    if (module === 'patients') return action === 'view';
+    if (['patients', 'dashboard'].includes(module)) return action === 'view';
+    return false;
+  }
+
+  // 15b. Inventory & Supply Manager
+  if (role === 'inventory_manager') {
+    if (module === 'inventory') return true;
+    if (['reports', 'dashboard'].includes(module)) return ['view', 'export', 'print'].includes(action);
     return false;
   }
 

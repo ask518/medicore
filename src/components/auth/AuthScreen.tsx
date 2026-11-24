@@ -1,5 +1,5 @@
 // ============================================================================
-// MEDICORE – Production Authentication Modal (Login, Register & Password Reset)
+// MEDICORE – Standalone Authentication Screen (Login, Register & Password Reset)
 // Real Supabase Identity, Session Management & Enterprise Security
 // ============================================================================
 
@@ -7,24 +7,17 @@ import React, { useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { useToast } from '../../context/ToastContext';
-import { 
-  ShieldCheck, Lock, Mail, User, Eye, EyeOff, 
-  ArrowRight, CheckCircle2, AlertTriangle, KeyRound, Sparkles, X
-} from 'lucide-react';
+import { ShieldCheck, Lock, Mail, User, Eye, EyeOff, ArrowRight } from 'lucide-react';
 
-interface AuthModalProps {
-  isOpen: boolean;
-  onClose: () => void;
+interface AuthScreenProps {
   defaultMode?: 'login' | 'register' | 'reset';
 }
 
-export const AuthModal: React.FC<AuthModalProps> = ({
-  isOpen,
-  onClose,
+export const AuthScreen: React.FC<AuthScreenProps> = ({
   defaultMode = 'login',
 }) => {
   const { login, register, resetPassword } = useAuth();
-  const { locale, t } = useLanguage();
+  const { locale, dir } = useLanguage();
   const { success, error, info } = useToast();
 
   const [mode, setMode] = useState<'login' | 'register' | 'reset'>(defaultMode);
@@ -36,8 +29,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
-  if (!isOpen) return null;
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
@@ -47,13 +38,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         const res = await login(email, password);
         if (res.success) {
           success(locale === 'ar' ? 'تم تسجيل الدخول بنجاح' : 'Signed in successfully');
-          onClose();
         } else {
           error(res.error || (locale === 'ar' ? 'بيانات الدخول غير صحيحة' : 'Invalid credentials'));
         }
       } else if (mode === 'register') {
-        if (password.length < 6) {
-          error(locale === 'ar' ? 'كلمة المرور يجب أن تكون 6 أحرف على الأقل' : 'Password must be at least 6 characters');
+        if (password.length < 12 || !/[A-Za-z]/.test(password) || !/[0-9]/.test(password)) {
+          error(locale === 'ar' ? 'استخدم 12 خانة على الأقل مع حرف لاتيني ورقم.' : 'Use at least 12 characters, including a letter and a number.');
           setIsLoading(false);
           return;
         }
@@ -65,7 +55,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
         const res = await register(email, password, nameAr, nameEn);
         if (res.success) {
-          success(locale === 'ar' ? 'تم إنشاء الحساب بنجاح! تفقد بريدك لتأكيد الحساب.' : 'Account registered successfully! Check email.');
+          success(locale === 'ar' ? 'تم إنشاء الحساب. أكّد بريدك الإلكتروني ثم سجّل الدخول لإعداد منشأتك.' : 'Account created. Verify your email, then sign in to set up your facility.');
           setMode('login');
         } else {
           error(res.error || (locale === 'ar' ? 'فشل إنشاء الحساب' : 'Registration failed'));
@@ -86,38 +76,41 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     }
   };
 
-  const handleQuickSuperAdmin = () => {
-    setEmail('admin@medicore.cloud');
-    setPassword('Medicore@2026!');
-  };
-
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
-      <div className="bg-white rounded-3xl max-w-md w-full p-6 sm:p-7 shadow-2xl animate-scale-in border border-slate-100 my-8">
+    <main dir={dir} className="relative flex min-h-screen w-full flex-col items-center justify-center gap-6 overflow-hidden bg-gradient-to-br from-slate-50 via-white to-sky-100 px-4 py-10 sm:gap-8">
+      <div aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden">
+        <div className="absolute -start-24 -top-24 h-72 w-72 rounded-full bg-sky-200/40 blur-3xl" />
+        <div className="absolute -bottom-28 -end-20 h-80 w-80 rounded-full bg-indigo-200/35 blur-3xl" />
+      </div>
+
+      <header className="relative z-10 flex items-center gap-3 text-center">
+        <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-tr from-medicore-700 to-medicore-500 text-white shadow-lg shadow-medicore-700/20">
+          <span className="text-lg font-black tracking-tight">M+</span>
+        </div>
+        <div className="text-start">
+          <div className="text-xl font-black tracking-tight text-slate-900">MEDICORE</div>
+          <div className="text-xs font-medium text-slate-500">{locale === 'ar' ? 'منصة الرعاية الطبية السحابية' : 'Cloud Healthcare Platform'}</div>
+        </div>
+      </header>
+
+      <section aria-labelledby="auth-screen-title" className="relative z-10 w-full max-w-md rounded-3xl border border-white/80 bg-white/95 p-6 shadow-2xl shadow-slate-900/10 backdrop-blur sm:p-8">
         {/* Header */}
-        <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-4">
+        <div className="flex items-center gap-3 border-b border-slate-100 pb-4">
           <div className="flex items-center gap-2.5">
-            <div className="w-10 h-10 rounded-2xl bg-purple-50 text-purple-700 flex items-center justify-center font-bold">
-              <ShieldCheck className="w-5 h-5" />
+            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-purple-50 text-purple-700">
+              <ShieldCheck className="h-5 w-5" />
             </div>
             <div>
-              <h3 className="font-black text-slate-900 text-base">
+              <h1 id="auth-screen-title" className="text-base font-black text-slate-900">
                 {mode === 'login' && (locale === 'ar' ? 'تسجيل الدخول للمنصة' : 'Sign In to MEDICORE')}
                 {mode === 'register' && (locale === 'ar' ? 'إنشاء حساب جديد' : 'Create New Account')}
                 {mode === 'reset' && (locale === 'ar' ? 'استعادة كلمة المرور' : 'Reset Password')}
-              </h3>
-              <p className="text-[11px] text-slate-500">
-                {locale === 'ar' ? 'مصادقة سحابية مشفرة عبر Supabase Auth' : 'Secured via Supabase Cloud Identity'}
+              </h1>
+              <p className="mt-1 text-xs text-slate-500">
+                {locale === 'ar' ? 'ادخل إلى حسابك للمتابعة' : 'Sign in to continue to your account'}
               </p>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="w-7 h-7 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center text-xs font-bold transition-colors"
-          >
-            <X className="w-4 h-4" />
-          </button>
         </div>
 
         {/* Mode Switch Tabs */}
@@ -228,6 +221,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 <input
                   type={showPassword ? 'text' : 'password'}
                   required
+                  minLength={mode === 'register' ? 12 : undefined}
                   value={password}
                   onChange={e => setPassword(e.target.value)}
                   placeholder="••••••••"
@@ -263,20 +257,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             </div>
           )}
 
-          {/* Quick Platform Owner Bootstrap helper */}
-          {mode === 'login' && (
-            <div className="pt-1">
-              <button
-                type="button"
-                onClick={handleQuickSuperAdmin}
-                className="w-full text-center text-[11px] font-bold text-purple-700 hover:text-purple-800 bg-purple-50 hover:bg-purple-100 p-2 rounded-xl transition-all border border-purple-200 flex items-center justify-center gap-1.5"
-              >
-                <KeyRound className="w-3.5 h-3.5" />
-                <span>{locale === 'ar' ? 'تسجيل دخول كـ مالك المنصة (Super Admin Bootstrap)' : 'Login as Platform Super Admin'}</span>
-              </button>
-            </div>
-          )}
-
           {/* Submit Button */}
           <div className="pt-2">
             <button
@@ -299,7 +279,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             </button>
           </div>
         </form>
-      </div>
-    </div>
+      </section>
+      <p className="relative z-10 text-center text-[11px] font-medium text-slate-400">{locale === 'ar' ? 'دخول آمن إلى مساحة العمل الخاصة بك' : 'Secure access to your workspace'}</p>
+    </main>
   );
 };

@@ -3,12 +3,12 @@
 // Search, Demographics, Documented Allergies & Chronological Medical Timeline
 // ============================================================================
 
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { useToast } from '../../context/ToastContext';
-import { dbClient } from '../../lib/dbClient';
-import { Patient, BloodGroupType, GenderType } from '../../types/database';
+import { supabase } from '../../lib/supabase';
+import { Patient, BloodGroupType, GenderType, InsuranceCompany } from '../../types/database';
 import { 
   Users, Search, Plus, UserPlus, Phone, Calendar, Heart, 
   AlertTriangle, Clock, FileText, ChevronRight, X, ShieldAlert,
@@ -16,32 +16,129 @@ import {
 } from 'lucide-react';
 
 export const Patients: React.FC = () => {
-  const { organization, activeBranch } = useAuth();
+  const { organization, activeBranch, user } = useAuth();
   const { locale, t } = useLanguage();
-  const { success } = useToast();
+  const { success, error } = useToast();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [patients, setPatients] = useState<Patient[]>([]);
+  const [patientAllergies, setPatientAllergies] = useState<any[]>([]);
+  const [medicalHistories, setMedicalHistories] = useState<any[]>([]);
+  const [consultations, setConsultations] = useState<any[]>([]);
+  const [prescriptions, setPrescriptions] = useState<any[]>([]);
+  const [allergyLoadError, setAllergyLoadError] = useState(false);
+  const [historyLoadError, setHistoryLoadError] = useState(false);
+  const [isLoadingPatients, setIsLoadingPatients] = useState(true);
+  const [isSavingPatient, setIsSavingPatient] = useState(false);
+  const [allergen, setAllergen] = useState('');
+  const [allergySeverity, setAllergySeverity] = useState<'mild'|'moderate'|'severe'|'anaphylactic'>('moderate');
+  const [allergyReaction, setAllergyReaction] = useState('');
+  const [conditionName, setConditionName] = useState('');
+  const [conditionType, setConditionType] = useState<'chronic_disease'|'past_surgery'|'family_history'|'lifestyle'>('chronic_disease');
+  const [conditionNotes, setConditionNotes] = useState('');
+  const [conditionYear, setConditionYear] = useState('');
+  const [savingClinicalData, setSavingClinicalData] = useState(false);
 
   // New Patient Form
   const [firstNameAr, setFirstNameAr] = useState('');
   const [lastNameAr, setLastNameAr] = useState('');
   const [firstNameEn, setFirstNameEn] = useState('');
   const [lastNameEn, setLastNameEn] = useState('');
-  const [dob, setDob] = useState('1992-01-01');
-  const [gender, setGender] = useState<GenderType>('male');
+  const [dob, setDob] = useState('');
+  const [gender, setGender] = useState<GenderType | ''>('');
   const [bloodGroup, setBloodGroup] = useState<BloodGroupType>('unknown');
   const [phone, setPhone] = useState('');
   const [whatsapp, setWhatsapp] = useState('');
   const [nationalId, setNationalId] = useState('');
   const [emergencyContactName, setEmergencyContactName] = useState('');
   const [emergencyContactPhone, setEmergencyContactPhone] = useState('');
+  const [insuranceCompanies, setInsuranceCompanies] = useState<InsuranceCompany[]>([]);
+  const [insuranceCompanyId, setInsuranceCompanyId] = useState('');
+  const [insuranceCardNumber, setInsuranceCardNumber] = useState('');
+  const [insuranceCoveragePercent, setInsuranceCoveragePercent] = useState('80');
+
+  const orgId = organization?.id || '';
+
+  useEffect(() => {
+    let active = true;
+    const loadPatients = async () => {
+      if (!orgId) return;
+      if (!supabase) { setIsLoadingPatients(false); error('اتصال قاعدة البيانات غير مهيأ.'); return; }
+      setIsLoadingPatients(true);
+      const [{ data, error: queryError }, { data: compData }] = await Promise.all([
+        supabase.from('patients').select('*').eq('organization_id', orgId).eq('is_active', true).order('created_at', { ascending: false }),
+        supabase.from('insurance_companies').select('*').eq('organization_id', orgId).eq('is_active', true),
+      ]);
+      if (!active) return;
+      if (queryError) { setPatients([]); error('تعذر تحميل ملفات المرضى من قاعدة البيانات.'); }
+      else setPatients((data || []) as Patient[]);
+      setInsuranceCompanies((compData || []) as InsuranceCompany[]);
+      setIsLoadingPatients(false);
+    };
+    void loadPatients();
+    return () => { active = false; };
+  }, [orgId]);
+
+  const patientsList = useMemo(() => {
+    const q = searchQuery.trim().toLocaleLowerCase();
+    return q ? patients.filter(patient => [patient.first_name_ar, patient.last_name_ar, patient.first_name_en, patient.last_name_en, patient.phone, patient.mrn, patient.national_id].some(value => value?.toLocaleLowerCase().includes(q))) : patients;
+  }, [patients, searchQuery]);
+
+  useEffect(() => {
+    let active = true;
+    const loadRecords = async () => {
+      if (!supabase || !selectedPatient) {
+        setPatientAllergies([]); setMedicalHistories([]); setConsultations([]); setPrescriptions([]);
+        setAllergyLoadError(false); setHistoryLoadError(false); return;
+      }
+      const [allergies, histories, cons, rxs] = await Promise.all([
+        supabase.from('patient_allergies').select('*').eq('organization_id', orgId).eq('patient_id', selectedPatient.id),
+        supabase.from('medical_histories').select('*').eq('organization_id', orgId).eq('patient_id', selectedPatient.id).eq('is_active', true).order('created_at', { ascending: false }),
+        supabase.from('consultations').select('*').eq('organization_id', orgId).eq('patient_id', selectedPatient.id).order('consultation_date', { ascending: false }),
+        supabase.from('prescriptions').select('*').eq('organization_id', orgId).eq('patient_id', selectedPatient.id).order('issued_date', { ascending: false }),
+      ]);
+      if (!active) return;
+      setAllergyLoadError(Boolean(allergies.error));
+      setHistoryLoadError(Boolean(histories.error || cons.error || rxs.error));
+      setPatientAllergies(allergies.error ? [] : allergies.data || []);
+      setMedicalHistories(histories.error ? [] : histories.data || []);
+      setConsultations(cons.error ? [] : cons.data || []);
+      const rxRows = rxs.error ? [] : rxs.data || [];
+      if (!rxRows.length) { setPrescriptions([]); return; }
+      const { data: items, error: itemsError } = await supabase.from('prescription_items').select('*').eq('organization_id', orgId).in('prescription_id', rxRows.map(rx => rx.id));
+      if (!active) return;
+      if (itemsError) setHistoryLoadError(true);
+      setPrescriptions(rxRows.map(rx => ({ ...rx, items: (items || []).filter(item => item.prescription_id === rx.id) })));
+    };
+    void loadRecords();
+    return () => { active = false; };
+  }, [selectedPatient?.id, orgId]);
+
+  const saveAllergy = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!supabase || !organization || !selectedPatient || !allergen.trim()) return;
+    if (!['org_owner','general_manager','branch_manager','doctor','assistant_doctor','nurse'].includes(user?.role || '')) { error(locale==='ar'?'إضافة بيانات الحساسية متاحة للفريق السريري فقط.':'Only clinical staff can add allergy records.'); return; }
+    setSavingClinicalData(true);
+    const { data, error: insertError } = await supabase.from('patient_allergies').insert({ organization_id: organization.id, patient_id: selectedPatient.id, allergen: allergen.trim(), severity: allergySeverity, reaction: allergyReaction.trim() || null, diagnosed_date: new Date().toISOString().slice(0,10) }).select('*').single();
+    setSavingClinicalData(false);
+    if (insertError || !data) { error(locale==='ar'?'تعذر حفظ سجل الحساسية.':'Could not save allergy record.'); return; }
+    setPatientAllergies(rows=>[data,...rows]); setAllergen(''); setAllergyReaction(''); success(locale==='ar'?'تم حفظ الحساسية في ملف المريض.':'Allergy saved to the patient record.');
+  };
+
+  const saveMedicalHistory = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!supabase || !organization || !selectedPatient || !conditionName.trim()) return;
+    if (!['org_owner','general_manager','branch_manager','doctor','assistant_doctor','nurse'].includes(user?.role || '')) { error(locale==='ar'?'إضافة التاريخ المرضي متاحة للفريق السريري فقط.':'Only clinical staff can add medical history.'); return; }
+    setSavingClinicalData(true);
+    const { data, error: insertError } = await supabase.from('medical_histories').insert({ organization_id: organization.id, patient_id: selectedPatient.id, condition_name: conditionName.trim(), condition_type: conditionType, notes: conditionNotes.trim() || null, onset_year: conditionYear ? Number(conditionYear) : null, is_active: true }).select('*').single();
+    setSavingClinicalData(false);
+    if (insertError || !data) { error(locale==='ar'?'تعذر حفظ التاريخ المرضي.':'Could not save medical history.'); return; }
+    setMedicalHistories(rows=>[data,...rows]); setConditionName(''); setConditionNotes(''); setConditionYear(''); success(locale==='ar'?'تم حفظ التاريخ المرضي في الملف.':'Medical history saved to the patient record.');
+  };
 
   if (!organization) return null;
-  const orgId = organization.id;
-
-  const patientsList = dbClient.getPatients(orgId, searchQuery);
 
   const calculateAge = (birthDateString: string) => {
     const today = new Date();
@@ -54,26 +151,29 @@ export const Patients: React.FC = () => {
     return age;
   };
 
-  const handleCreatePatient = (e: React.FormEvent) => {
+  const handleCreatePatient = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!firstNameAr || !lastNameAr || !phone) return;
 
-    const created = dbClient.createPatient(orgId, {
-      primary_branch_id: activeBranch?.id,
-      national_id: nationalId || undefined,
-      first_name_ar: firstNameAr,
-      last_name_ar: lastNameAr,
-      first_name_en: firstNameEn || undefined,
-      last_name_en: lastNameEn || undefined,
-      date_of_birth: dob,
-      gender,
-      blood_group: bloodGroup,
-      phone,
-      whatsapp: whatsapp || phone,
-      emergency_contact_name: emergencyContactName || undefined,
-      emergency_contact_phone: emergencyContactPhone || undefined,
+    if (!supabase) { error('اتصال قاعدة البيانات غير مهيأ؛ لم يتم حفظ الملف.'); return; }
+    setIsSavingPatient(true);
+    const mrn = `MRN-${new Date().getFullYear()}-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
+    const { data: row, error: insertError } = await supabase.from('patients').insert({
+      organization_id: orgId, primary_branch_id: activeBranch?.id || null, mrn,
+      national_id: nationalId || null, first_name_ar: firstNameAr.trim(), last_name_ar: lastNameAr.trim(),
+      first_name_en: firstNameEn.trim() || null, last_name_en: lastNameEn.trim() || null,
+      date_of_birth: dob, gender, blood_group: bloodGroup, phone: phone.trim(),
+      whatsapp: whatsapp.trim() || phone.trim(), emergency_contact_name: emergencyContactName.trim() || null,
+      emergency_contact_phone: emergencyContactPhone.trim() || null,
+      insurance_company_id: insuranceCompanyId || null,
+      insurance_card_number: insuranceCardNumber.trim() || null,
+      insurance_coverage_percent: insuranceCompanyId ? Math.min(100, Math.max(0, Number(insuranceCoveragePercent) || 0)) : 0,
       is_active: true,
-    });
+    }).select('*').single();
+    setIsSavingPatient(false);
+    if (insertError || !row) { error('تعذر حفظ ملف المريض. تحقق من البيانات وصلاحية الحساب.'); return; }
+    const created = row as Patient;
+    setPatients(current => [created, ...current]);
 
     success(locale === 'ar' ? `تم فتح ملف مريض جديد برقم ${created.mrn}` : `Patient registered: ${created.mrn}`);
     setShowAddModal(false);
@@ -84,14 +184,16 @@ export const Patients: React.FC = () => {
     setLastNameAr('');
     setFirstNameEn('');
     setLastNameEn('');
+    setDob('');
+    setGender('');
+    setBloodGroup('unknown');
     setPhone('');
     setWhatsapp('');
     setNationalId('');
+    setInsuranceCompanyId('');
+    setInsuranceCardNumber('');
+    setInsuranceCoveragePercent('80');
   };
-
-  // If a patient is selected, fetch their full timeline
-  const consultations = selectedPatient ? dbClient.getConsultations(orgId, selectedPatient.id) : [];
-  const prescriptions = selectedPatient ? dbClient.getPrescriptions(orgId, selectedPatient.id) : [];
 
   return (
     <div className="space-y-6">
@@ -151,7 +253,7 @@ export const Patients: React.FC = () => {
           <div className="divide-y divide-slate-100 max-h-[640px] overflow-y-auto">
             {patientsList.length === 0 ? (
               <div className="p-8 text-center text-slate-400 text-xs">
-                {locale === 'ar' ? 'لا يوجد مرضى مطابقين للبحث' : 'No matching patients found'}
+                {isLoadingPatients ? (locale === 'ar' ? 'جارٍ تحميل ملفات المرضى...' : 'Loading patient records...') : (locale === 'ar' ? 'لا يوجد مرضى مطابقين للبحث' : 'No matching patients found')}
               </div>
             ) : (
               patientsList.map(pat => {
@@ -167,7 +269,7 @@ export const Patients: React.FC = () => {
                   >
                     <div className="flex items-center gap-3">
                       <div className="w-10 h-10 rounded-xl bg-slate-100 text-slate-700 font-bold text-xs flex items-center justify-center shrink-0">
-                        {pat.gender === 'male' ? '♂' : '♀'}
+                        {pat.gender === 'male' ? '♂' : pat.gender === 'female' ? '♀' : '·'}
                       </div>
                       <div>
                         <div className="font-bold text-sm text-slate-900 flex items-center gap-2">
@@ -214,7 +316,7 @@ export const Patients: React.FC = () => {
                   <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500 mt-1">
                     <span>{locale === 'ar' ? 'العمر:' : 'Age:'} {calculateAge(selectedPatient.date_of_birth)} {locale === 'ar' ? 'سنة' : 'years'}</span>
                     <span>•</span>
-                    <span>{selectedPatient.gender === 'male' ? t.emr.male : t.emr.female}</span>
+                    <span>{selectedPatient.gender === 'male' ? t.emr.male : selectedPatient.gender === 'female' ? t.emr.female : (locale === 'ar' ? 'أخرى' : 'Other')}</span>
                     <span>•</span>
                     <span className="font-bold text-rose-600">{selectedPatient.blood_group}</span>
                     <span>•</span>
@@ -249,14 +351,35 @@ export const Patients: React.FC = () => {
                 <div>
                   <span className="text-xs font-bold text-rose-900">{t.emr.allergies}:</span>
                   <p className="text-xs text-rose-800 font-medium">
-                    {locale === 'ar' ? 'حساسية مفرطة من مشتقات البنسلين (Penicillin Allergy)' : 'Severe Penicillin Allergy'}
+                    {allergyLoadError
+                      ? (locale === 'ar' ? 'تعذر تحميل سجل الحساسية. لا تعتمد على عدم ظهور حساسية.' : 'Could not load allergy history; do not assume there are no allergies.')
+                      : patientAllergies.length ? patientAllergies.map(item => `${item.allergen} (${item.severity})`).join('، ') : (locale === 'ar' ? 'لا توجد حساسية مسجلة في الملف' : 'No allergies recorded in this file')}
                   </p>
                 </div>
               </div>
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-200 text-rose-900 uppercase">
-                Severe
-              </span>
+              {patientAllergies.length > 0 && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-200 text-rose-900 uppercase">{locale === 'ar' ? 'مُسجل' : 'Recorded'}</span>}
             </div>
+
+            {['org_owner','general_manager','branch_manager','doctor','assistant_doctor','nurse'].includes(user?.role || '') && <div className="grid gap-4 lg:grid-cols-2">
+              <form onSubmit={saveAllergy} className="space-y-3 rounded-xl border border-rose-200 bg-white p-4">
+                <h3 className="text-sm font-black text-rose-900">{locale==='ar'?'إضافة حساسية':'Record an allergy'}</h3>
+                <label className="block text-xs font-bold">{locale==='ar'?'مسبب الحساسية':'Allergen'}<input required maxLength={255} value={allergen} onChange={e=>setAllergen(e.target.value)} className="mt-1 w-full rounded-lg border p-2.5"/></label>
+                <div className="grid gap-3 sm:grid-cols-2"><label className="text-xs font-bold">{locale==='ar'?'الشدة':'Severity'}<select value={allergySeverity} onChange={e=>setAllergySeverity(e.target.value as typeof allergySeverity)} className="mt-1 w-full rounded-lg border bg-white p-2.5"><option value="mild">{locale==='ar'?'خفيفة':'Mild'}</option><option value="moderate">{locale==='ar'?'متوسطة':'Moderate'}</option><option value="severe">{locale==='ar'?'شديدة':'Severe'}</option><option value="anaphylactic">{locale==='ar'?'تأق':'Anaphylactic'}</option></select></label><label className="text-xs font-bold">{locale==='ar'?'رد الفعل':'Reaction'}<input maxLength={2000} value={allergyReaction} onChange={e=>setAllergyReaction(e.target.value)} className="mt-1 w-full rounded-lg border p-2.5"/></label></div>
+                <button disabled={savingClinicalData} className="rounded-lg bg-rose-700 px-4 py-2 text-xs font-bold text-white disabled:opacity-50">{locale==='ar'?'حفظ الحساسية':'Save allergy'}</button>
+              </form>
+              <form onSubmit={saveMedicalHistory} className="space-y-3 rounded-xl border border-indigo-200 bg-white p-4">
+                <h3 className="text-sm font-black text-indigo-900">{locale==='ar'?'إضافة تاريخ مرضي':'Record medical history'}</h3>
+                <label className="block text-xs font-bold">{locale==='ar'?'الحالة أو الإجراء':'Condition or procedure'}<input required maxLength={255} value={conditionName} onChange={e=>setConditionName(e.target.value)} className="mt-1 w-full rounded-lg border p-2.5"/></label>
+                <div className="grid gap-3 sm:grid-cols-2"><label className="text-xs font-bold">{locale==='ar'?'التصنيف':'Category'}<select value={conditionType} onChange={e=>setConditionType(e.target.value as typeof conditionType)} className="mt-1 w-full rounded-lg border bg-white p-2.5"><option value="chronic_disease">{locale==='ar'?'مرض مزمن':'Chronic disease'}</option><option value="past_surgery">{locale==='ar'?'جراحة سابقة':'Past surgery'}</option><option value="family_history">{locale==='ar'?'تاريخ عائلي':'Family history'}</option><option value="lifestyle">{locale==='ar'?'نمط حياة':'Lifestyle'}</option></select></label><label className="text-xs font-bold">{locale==='ar'?'سنة البداية (اختياري)':'Onset year (optional)'}<input type="number" min="1900" max={new Date().getFullYear()} value={conditionYear} onChange={e=>setConditionYear(e.target.value)} className="mt-1 w-full rounded-lg border p-2.5"/></label></div>
+                <label className="block text-xs font-bold">{locale==='ar'?'ملاحظات':'Notes'}<textarea maxLength={5000} value={conditionNotes} onChange={e=>setConditionNotes(e.target.value)} rows={2} className="mt-1 w-full rounded-lg border p-2.5"/></label>
+                <button disabled={savingClinicalData} className="rounded-lg bg-indigo-700 px-4 py-2 text-xs font-bold text-white disabled:opacity-50">{locale==='ar'?'حفظ التاريخ المرضي':'Save medical history'}</button>
+              </form>
+            </div>}
+
+            <section className="space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <h3 className="text-sm font-black">{locale==='ar'?'التاريخ المرضي المسجل':'Recorded medical history'}</h3>
+              {medicalHistories.length ? medicalHistories.map(item=><article key={item.id} className="rounded-lg border bg-white p-3 text-xs"><b>{item.condition_name}</b><span className="ms-2 text-slate-500">{item.condition_type}{item.onset_year?` · ${item.onset_year}`:''}</span>{item.notes&&<p className="mt-1 text-slate-600">{item.notes}</p>}</article>) : <p className="text-xs text-slate-500">{locale==='ar'?'لا يوجد تاريخ مرضي مسجل في هذا الملف.':'No medical history is recorded in this file.'}</p>}
+            </section>
 
             {/* Chronological Clinical Timeline */}
             <div className="space-y-4">
@@ -264,6 +387,8 @@ export const Patients: React.FC = () => {
                 <Clock className="w-4 h-4 text-medicore-600" />
                 {t.emr.medicalTimeline}
               </h3>
+
+              {historyLoadError && <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs font-semibold leading-5 text-amber-950">{locale === 'ar' ? 'تعذر تحميل جزء من السجل السريري؛ القائمة الظاهرة قد تكون ناقصة.' : 'Part of the clinical history could not be loaded; the visible list may be incomplete.'}</div>}
 
               {consultations.length === 0 ? (
                 <div className="p-6 text-center text-slate-400 text-xs border border-dashed border-slate-200 rounded-xl">
@@ -327,7 +452,7 @@ export const Patients: React.FC = () => {
                     <span className="text-[11px] text-teal-700">د. {rx.doctor?.user?.name_ar}</span>
                   </div>
                   <div className="space-y-1">
-                    {rx.items?.map(it => (
+                    {rx.items?.map((it: any) => (
                       <p key={it.id} className="text-slate-700 ps-2 border-s-2 border-teal-400">
                         • {it.drug_name} — {it.dosage} ({it.frequency} لمدة {it.duration})
                       </p>
@@ -407,12 +532,15 @@ export const Patients: React.FC = () => {
                     {t.emr.gender} *
                   </label>
                   <select
+                    required
                     value={gender}
                     onChange={e => setGender(e.target.value as GenderType)}
                     className="w-full text-sm rounded-xl border border-slate-300 p-2.5 bg-white"
                   >
+                    <option value="">{locale === 'ar' ? 'اختر النوع' : 'Select gender'}</option>
                     <option value="male">{t.emr.male}</option>
                     <option value="female">{t.emr.female}</option>
+                    <option value="other">{locale === 'ar' ? 'أخرى' : 'Other'}</option>
                   </select>
                 </div>
 
@@ -493,6 +621,55 @@ export const Patients: React.FC = () => {
                 </div>
               </div>
 
+              {/* Health Insurance Section */}
+              <div className="p-3.5 rounded-2xl bg-teal-50/60 border border-teal-100 space-y-3">
+                <p className="text-xs font-black text-teal-800">{t.emr.insuranceDetails}</p>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  <div className="sm:col-span-1">
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                      {locale === 'ar' ? 'شركة التأمين' : 'Provider'}
+                    </label>
+                    <select
+                      value={insuranceCompanyId}
+                      onChange={e => setInsuranceCompanyId(e.target.value)}
+                      className="w-full text-xs rounded-xl border border-slate-300 p-2 bg-white"
+                    >
+                      <option value="">{locale === 'ar' ? 'بدون تأمين (كاش)' : 'Self-Pay (None)'}</option>
+                      {insuranceCompanies.map(c => (
+                        <option key={c.id} value={c.id}>{locale === 'ar' ? c.name_ar : c.name_en}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                      {locale === 'ar' ? 'رقم البطاقة' : 'Card #'}
+                    </label>
+                    <input
+                      type="text"
+                      disabled={!insuranceCompanyId}
+                      value={insuranceCardNumber}
+                      onChange={e => setInsuranceCardNumber(e.target.value)}
+                      placeholder="INS-..."
+                      className="w-full text-xs rounded-xl border border-slate-300 p-2 bg-white disabled:opacity-50 font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                      {locale === 'ar' ? 'نسبة التغطية %' : 'Coverage %'}
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      disabled={!insuranceCompanyId}
+                      value={insuranceCoveragePercent}
+                      onChange={e => setInsuranceCoveragePercent(e.target.value)}
+                      className="w-full text-xs rounded-xl border border-slate-300 p-2 bg-white disabled:opacity-50 font-mono"
+                    />
+                  </div>
+                </div>
+              </div>
+
               <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
                 <button
                   type="button"
@@ -503,9 +680,10 @@ export const Patients: React.FC = () => {
                 </button>
                 <button
                   type="submit"
+                  disabled={isSavingPatient}
                   className="px-5 py-2 text-sm bg-medicore-600 hover:bg-medicore-700 text-white font-bold rounded-xl shadow-xs"
                 >
-                  {t.emr.addPatient}
+                  {isSavingPatient ? (locale === 'ar' ? 'جارٍ الحفظ...' : 'Saving...') : t.emr.addPatient}
                 </button>
               </div>
             </form>

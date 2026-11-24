@@ -2,44 +2,61 @@
 // MEDICORE – Organization Profile, Branding & Dedicated Enterprise Deployment
 // ============================================================================
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { useToast } from '../../context/ToastContext';
-import { dbClient } from '../../lib/dbClient';
-import { APP_CONFIG } from '../../config/appConfig';
+import { supabase } from '../../lib/supabase';
 import { Settings as SettingsIcon, Building2, Shield, Palette, Globe, Server, Check } from 'lucide-react';
 
 export const Settings: React.FC = () => {
-  const { organization, isEnterpriseDedicated } = useAuth();
+  const { organization, isEnterpriseDedicated, isOrgOwner } = useAuth();
   const { locale, t } = useLanguage();
-  const { success } = useToast();
+  const { success, error } = useToast();
 
-  if (!organization) return null;
+  const [nameAr, setNameAr] = useState(organization?.name_ar || '');
+  const [nameEn, setNameEn] = useState(organization?.name_en || '');
+  const [phone, setPhone] = useState(organization?.phone || '');
+  const [email, setEmail] = useState(organization?.email || '');
+  const [address, setAddress] = useState(organization?.address || '');
+  const [taxNumber, setTaxNumber] = useState(organization?.tax_number || '');
+  const [commercialReg, setCommercialReg] = useState(organization?.commercial_reg_no || '');
+  const [primaryColor, setPrimaryColor] = useState('#0C87EB');
+  const [customDomain, setCustomDomain] = useState('');
+  const [saving, setSaving] = useState(false);
 
-  const [nameAr, setNameAr] = useState(organization.name_ar);
-  const [nameEn, setNameEn] = useState(organization.name_en);
-  const [phone, setPhone] = useState(organization.phone);
-  const [email, setEmail] = useState(organization.email);
-  const [address, setAddress] = useState(organization.address || '');
-  const [taxNumber, setTaxNumber] = useState(organization.tax_number || '');
-  const [commercialReg, setCommercialReg] = useState(organization.commercial_reg_no || '');
-  const [primaryColor, setPrimaryColor] = useState('#0c87eb');
-  const [customDomain, setCustomDomain] = useState(`clinic.${organization.slug || 'medicore'}.cloud`);
+  useEffect(() => {
+    if (!supabase || !organization) return;
+    setNameAr(organization.name_ar); setNameEn(organization.name_en); setPhone(organization.phone); setEmail(organization.email);
+    setAddress(organization.address || ''); setTaxNumber(organization.tax_number || ''); setCommercialReg(organization.commercial_reg_no || '');
+    void supabase.from('organization_settings').select('primary_color,custom_domain').eq('organization_id', organization.id).maybeSingle().then(({data}) => {
+      if (data?.primary_color) setPrimaryColor(data.primary_color);
+      if (data?.custom_domain) setCustomDomain(data.custom_domain);
+    });
+  }, [organization?.id]);
 
-  const handleSave = (e: React.FormEvent) => {
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    dbClient.updateOrganization(organization.id, {
+    if (!organization || !supabase || !isOrgOwner) { error(locale==='ar'?'حفظ الإعدادات متاح لمالك المنشأة والمدير العام فقط.':'Only the owner or general manager can save settings.'); return; }
+    setSaving(true);
+    const { error: orgError } = await supabase.from('organizations').update({
       name_ar: nameAr,
       name_en: nameEn,
       phone,
       email,
-      address,
-      tax_number: taxNumber,
-      commercial_reg_no: commercialReg,
-    });
+      address: address || null,
+      tax_number: taxNumber || null,
+      commercial_reg_no: commercialReg || null,
+    }).eq('id', organization.id);
+    if (orgError) { setSaving(false); error(locale==='ar'?'تعذر حفظ بيانات المنشأة.':'Could not save facility details.'); return; }
+    const { error: settingsError } = await supabase.from('organization_settings').upsert({ organization_id: organization.id, primary_color: primaryColor, custom_domain: customDomain || null, updated_at: new Date().toISOString() }, { onConflict: 'organization_id' });
+    setSaving(false);
+    if (settingsError) { error(locale==='ar'?'تم حفظ بيانات المنشأة لكن تعذر حفظ الهوية البصرية.':'Facility details saved, but branding settings failed.'); return; }
     success(locale === 'ar' ? 'تم حفظ إعدادات وبيانات المنشأة بنجاح' : 'Settings saved successfully');
+    window.location.reload();
   };
+
+  if (!organization) return null;
 
   return (
     <div className="space-y-6 max-w-4xl mx-auto">
@@ -197,9 +214,10 @@ export const Settings: React.FC = () => {
         <div className="flex justify-end">
           <button
             type="submit"
+            disabled={saving || !isOrgOwner}
             className="px-6 py-2.5 bg-medicore-600 hover:bg-medicore-700 text-white font-bold text-sm rounded-xl shadow-xs"
           >
-            {t.common.save}
+            {saving ? (locale==='ar'?'جار الحفظ...':'Saving...') : t.common.save}
           </button>
         </div>
       </form>

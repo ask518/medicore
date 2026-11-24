@@ -648,6 +648,24 @@ export interface InsuranceCompany {
   created_at: string;
 }
 
+export interface InsuranceContract {
+  id: string;
+  organization_id: string;
+  insurance_company_id: string;
+  contract_code: string;
+  plan_name_ar: string;
+  plan_name_en: string;
+  coverage_percent: number;
+  co_payment_percent: number;
+  annual_limit: number;
+  requires_pre_approval_above?: number;
+  valid_from: string;
+  valid_to?: string;
+  is_active: boolean;
+  created_at: string;
+  insurance_company?: InsuranceCompany;
+}
+
 export interface InsuranceClaim {
   id: string;
   organization_id: string;
@@ -662,11 +680,14 @@ export interface InsuranceClaim {
   co_payment_amount: number;
   status: 'submitted' | 'approved' | 'partially_approved' | 'rejected' | 'paid';
   rejection_reason?: string;
+  pre_approval_code?: string;
+  notes?: string;
   submission_date: string;
   settlement_date?: string;
   created_at: string;
   insurance_company?: InsuranceCompany;
   patient?: Patient;
+  invoice?: { invoice_number: string; total_amount: number };
 }
 
 export interface InventoryItem {
@@ -685,6 +706,41 @@ export interface InventoryItem {
   batch_number?: string;
   expiry_date?: string;
   is_active: boolean;
+}
+
+export type InventoryMovementType =
+  | 'purchase'
+  | 'dispense'
+  | 'adjustment'
+  | 'transfer_in'
+  | 'transfer_out'
+  | 'damage';
+
+export interface InventoryMovement {
+  id: string;
+  organization_id: string;
+  item_id: string;
+  movement_type: InventoryMovementType;
+  quantity: number;
+  unit_price: number;
+  reference_id?: string;
+  notes?: string;
+  created_by?: string;
+  created_at: string;
+  item?: { sku: string; name_ar: string; name_en: string; unit: string };
+}
+
+export interface Supplier {
+  id: string;
+  organization_id: string;
+  name_ar: string;
+  name_en: string;
+  contact_person?: string;
+  phone?: string;
+  email?: string;
+  tax_id?: string;
+  is_active: boolean;
+  created_at: string;
 }
 
 export interface AuditLog {

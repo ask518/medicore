@@ -4,19 +4,29 @@
 -- ============================================================================
 
 -- Enable required extensions
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 -- ============================================================================
 -- 1. SUBSCRIPTION PLANS & PLATFORM CONFIGURATION (GLOBAL / PLATFORM OWNER)
 -- ============================================================================
 
-CREATE TYPE subscription_tier AS ENUM ('starter', 'professional', 'medical_center', 'enterprise');
-CREATE TYPE billing_cycle AS ENUM ('monthly', 'annual', 'lifetime', 'trial');
-CREATE TYPE subscription_status AS ENUM ('trialing', 'active', 'past_due', 'canceled', 'expired', 'suspended');
+DO $$ BEGIN
+    CREATE TYPE subscription_tier AS ENUM ('starter', 'professional', 'medical_center', 'enterprise');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+DO $$ BEGIN
+    CREATE TYPE billing_cycle AS ENUM ('monthly', 'annual', 'lifetime', 'trial');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+DO $$ BEGIN
+    CREATE TYPE subscription_status AS ENUM ('trialing', 'active', 'past_due', 'canceled', 'expired', 'suspended');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
-CREATE TABLE subscription_plans (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+-- The table may already exist from a partial/manual setup. Its existing
+-- columns, defaults, and constraints were verified against this definition.
+CREATE TABLE IF NOT EXISTS subscription_plans (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     slug VARCHAR(50) UNIQUE NOT NULL,
     name_ar VARCHAR(100) NOT NULL,
     name_en VARCHAR(100) NOT NULL,
@@ -40,24 +50,31 @@ CREATE TABLE subscription_plans (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+ALTER TABLE public.subscription_plans ALTER COLUMN id SET DEFAULT gen_random_uuid();
 
 -- ============================================================================
 -- 2. ORGANIZATIONS (TENANTS) & SUBSCRIPTIONS
 -- ============================================================================
 
-CREATE TYPE facility_type AS ENUM (
-    'private_clinic',
-    'poly_clinic',
-    'medical_center',
-    'specialized_center',
-    'complex',
-    'hospital'
-);
+DO $$ BEGIN
+    CREATE TYPE facility_type AS ENUM (
+        'private_clinic',
+        'poly_clinic',
+        'medical_center',
+        'specialized_center',
+        'complex',
+        'hospital'
+    );
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
-CREATE TYPE organization_status AS ENUM ('pending_approval', 'active', 'suspended', 'archived');
+DO $$ BEGIN
+    CREATE TYPE organization_status AS ENUM ('pending_approval', 'active', 'suspended', 'archived');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 CREATE TABLE organizations (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name_ar VARCHAR(255) NOT NULL,
     name_en VARCHAR(255) NOT NULL,
     slug VARCHAR(100) UNIQUE NOT NULL,
@@ -100,7 +117,7 @@ CREATE TABLE organization_settings (
 );
 
 CREATE TABLE subscriptions (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
     plan_id UUID NOT NULL REFERENCES subscription_plans(id),
     status subscription_status NOT NULL DEFAULT 'trialing',
@@ -119,7 +136,7 @@ CREATE TABLE subscriptions (
 );
 
 CREATE TABLE subscription_events (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
     subscription_id UUID NOT NULL REFERENCES subscriptions(id) ON DELETE CASCADE,
     event_type VARCHAR(50) NOT NULL,
@@ -135,7 +152,7 @@ CREATE TABLE subscription_events (
 -- ============================================================================
 
 CREATE TABLE branches (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
     name_ar VARCHAR(255) NOT NULL,
     name_en VARCHAR(255) NOT NULL,
@@ -153,7 +170,7 @@ CREATE TABLE branches (
 );
 
 CREATE TABLE departments (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
     branch_id UUID REFERENCES branches(id) ON DELETE SET NULL,
     name_ar VARCHAR(255) NOT NULL,
@@ -164,7 +181,7 @@ CREATE TABLE departments (
 );
 
 CREATE TABLE examination_rooms (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
     branch_id UUID NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
     room_number VARCHAR(50) NOT NULL,
@@ -196,7 +213,7 @@ CREATE TYPE app_role AS ENUM (
 );
 
 CREATE TABLE users (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE,
     email VARCHAR(255) UNIQUE NOT NULL,
     phone VARCHAR(50),
@@ -213,7 +230,7 @@ CREATE TABLE users (
 );
 
 CREATE TABLE user_branch_access (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     branch_id UUID NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
@@ -223,7 +240,7 @@ CREATE TABLE user_branch_access (
 );
 
 CREATE TABLE doctors (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
     user_id UUID UNIQUE NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     specialty_code VARCHAR(50) NOT NULL, -- 'orthopedics', 'dentistry', 'dermatology', etc.
@@ -241,7 +258,7 @@ CREATE TABLE doctors (
 );
 
 CREATE TABLE doctor_schedules (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
     doctor_id UUID NOT NULL REFERENCES doctors(id) ON DELETE CASCADE,
     branch_id UUID NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
@@ -262,7 +279,7 @@ CREATE TYPE gender_type AS ENUM ('male', 'female', 'other');
 CREATE TYPE blood_group_type AS ENUM ('A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-', 'unknown');
 
 CREATE TABLE patients (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
     primary_branch_id UUID REFERENCES branches(id) ON DELETE SET NULL,
     mrn VARCHAR(50) NOT NULL, -- Medical Record Number
@@ -293,7 +310,7 @@ CREATE TABLE patients (
 );
 
 CREATE TABLE patient_allergies (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
     patient_id UUID NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
     allergen VARCHAR(255) NOT NULL,
@@ -304,7 +321,7 @@ CREATE TABLE patient_allergies (
 );
 
 CREATE TABLE medical_histories (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
     patient_id UUID NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
     condition_name VARCHAR(255) NOT NULL,
@@ -332,7 +349,7 @@ CREATE TYPE appointment_status AS ENUM (
 );
 
 CREATE TABLE appointments (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
     branch_id UUID NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
     doctor_id UUID NOT NULL REFERENCES doctors(id) ON DELETE CASCADE,
@@ -367,7 +384,7 @@ WHERE status NOT IN ('cancelled', 'no_show');
 CREATE TYPE consultation_status AS ENUM ('draft', 'finalized', 'amended');
 
 CREATE TABLE consultations (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
     branch_id UUID NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
     appointment_id UUID REFERENCES appointments(id) ON DELETE SET NULL,
@@ -414,7 +431,7 @@ CREATE TABLE consultations (
 
 -- Interactive anatomical canvas findings (Orthopedic skeleton, Odontogram, Derma body map)
 CREATE TABLE anatomical_findings (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
     consultation_id UUID REFERENCES consultations(id) ON DELETE CASCADE,
     patient_id UUID NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
@@ -436,7 +453,7 @@ CREATE TABLE anatomical_findings (
 -- ============================================================================
 
 CREATE TABLE medications (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE, -- NULL for verified global catalog
     brand_name VARCHAR(255) NOT NULL,
     generic_name VARCHAR(255) NOT NULL,
@@ -450,7 +467,7 @@ CREATE TABLE medications (
 );
 
 CREATE TABLE prescriptions (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
     branch_id UUID NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
     consultation_id UUID REFERENCES consultations(id) ON DELETE SET NULL,
@@ -466,7 +483,7 @@ CREATE TABLE prescriptions (
 );
 
 CREATE TABLE prescription_items (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
     prescription_id UUID NOT NULL REFERENCES prescriptions(id) ON DELETE CASCADE,
     medication_id UUID REFERENCES medications(id) ON DELETE SET NULL,
@@ -484,7 +501,7 @@ CREATE TABLE prescription_items (
 -- ============================================================================
 
 CREATE TABLE laboratory_tests (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
     test_code VARCHAR(50) NOT NULL,
     name_ar VARCHAR(255) NOT NULL,
@@ -501,7 +518,7 @@ CREATE TABLE laboratory_tests (
 CREATE TYPE order_status AS ENUM ('requested', 'sample_collected', 'in_progress', 'completed', 'canceled');
 
 CREATE TABLE laboratory_orders (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
     branch_id UUID NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
     patient_id UUID NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
@@ -516,7 +533,7 @@ CREATE TABLE laboratory_orders (
 );
 
 CREATE TABLE laboratory_results (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
     order_id UUID NOT NULL REFERENCES laboratory_orders(id) ON DELETE CASCADE,
     test_id UUID NOT NULL REFERENCES laboratory_tests(id) ON DELETE CASCADE,
@@ -532,7 +549,7 @@ CREATE TABLE laboratory_results (
 );
 
 CREATE TABLE radiology_orders (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
     branch_id UUID NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
     patient_id UUID NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
@@ -552,7 +569,7 @@ CREATE TABLE radiology_orders (
 );
 
 CREATE TABLE medical_attachments (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
     patient_id UUID NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
     consultation_id UUID REFERENCES consultations(id) ON DELETE SET NULL,
@@ -573,7 +590,7 @@ CREATE TYPE invoice_status AS ENUM ('draft', 'unpaid', 'partially_paid', 'paid',
 CREATE TYPE payment_mode AS ENUM ('cash', 'credit_card', 'bank_transfer', 'insurance', 'vodafone_cash', 'fawry');
 
 CREATE TABLE services (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
     code VARCHAR(50) NOT NULL,
     name_ar VARCHAR(255) NOT NULL,
@@ -586,7 +603,7 @@ CREATE TABLE services (
 );
 
 CREATE TABLE cashboxes (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
     branch_id UUID NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
     name VARCHAR(100) NOT NULL,
@@ -596,7 +613,7 @@ CREATE TABLE cashboxes (
 );
 
 CREATE TABLE invoices (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
     branch_id UUID NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
     patient_id UUID NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
@@ -619,7 +636,7 @@ CREATE TABLE invoices (
 );
 
 CREATE TABLE invoice_items (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
     invoice_id UUID NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
     service_id UUID REFERENCES services(id) ON DELETE SET NULL,
@@ -632,7 +649,7 @@ CREATE TABLE invoice_items (
 );
 
 CREATE TABLE payments (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
     branch_id UUID NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
     invoice_id UUID NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
@@ -651,7 +668,7 @@ CREATE TABLE payments (
 );
 
 CREATE TABLE expenses (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
     branch_id UUID NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
     cashbox_id UUID REFERENCES cashboxes(id) ON DELETE SET NULL,
@@ -667,7 +684,7 @@ CREATE TABLE expenses (
 );
 
 CREATE TABLE doctor_commissions (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
     branch_id UUID NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
     doctor_id UUID NOT NULL REFERENCES doctors(id) ON DELETE CASCADE,
@@ -685,7 +702,7 @@ CREATE TABLE doctor_commissions (
 -- ============================================================================
 
 CREATE TABLE insurance_companies (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
     name_ar VARCHAR(255) NOT NULL,
     name_en VARCHAR(255) NOT NULL,
@@ -699,7 +716,7 @@ CREATE TABLE insurance_companies (
 );
 
 CREATE TABLE insurance_claims (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
     branch_id UUID NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
     insurance_company_id UUID NOT NULL REFERENCES insurance_companies(id) ON DELETE CASCADE,
@@ -723,7 +740,7 @@ CREATE TABLE insurance_claims (
 -- ============================================================================
 
 CREATE TABLE inventory_items (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
     branch_id UUID NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
     sku VARCHAR(50) NOT NULL,
@@ -742,7 +759,7 @@ CREATE TABLE inventory_items (
 );
 
 CREATE TABLE inventory_movements (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
     item_id UUID NOT NULL REFERENCES inventory_items(id) ON DELETE CASCADE,
     movement_type VARCHAR(50) NOT NULL, -- 'purchase', 'dispense', 'adjustment', 'transfer_in', 'transfer_out', 'damage'
@@ -759,7 +776,7 @@ CREATE TABLE inventory_movements (
 -- ============================================================================
 
 CREATE TABLE audit_logs (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE,
     branch_id UUID REFERENCES branches(id) ON DELETE SET NULL,
     user_id UUID REFERENCES users(id) ON DELETE SET NULL,
@@ -782,7 +799,7 @@ CREATE INDEX idx_audit_org_entity ON audit_logs(organization_id, entity_type, en
 -- ============================================================================
 
 CREATE TABLE support_tickets (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     ticket_number VARCHAR(50) NOT NULL,
@@ -796,7 +813,7 @@ CREATE TABLE support_tickets (
 );
 
 CREATE TABLE system_announcements (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     title_ar VARCHAR(255) NOT NULL,
     title_en VARCHAR(255) NOT NULL,
     body_ar TEXT NOT NULL,
