@@ -34,7 +34,7 @@ import { PatientPortal } from './pages/patient-portal/PatientPortal';
 import { OrganizationOnboarding } from './pages/OrganizationOnboarding';
 
 const AppContent: React.FC = () => {
-  const { user, session, isLoading, logout, isSuperAdmin, isPatient } = useAuth();
+  const { user, session, isLoading, isPasswordRecovery, logout, isSuperAdmin, isPatient } = useAuth();
   const { locale } = useLanguage();
   const [currentTab, setCurrentTab] = useState<string>('dashboard');
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
@@ -51,6 +51,7 @@ const AppContent: React.FC = () => {
   }, [user?.role, isSuperAdmin, isPatient]);
 
   if (isLoading) return <div className="grid min-h-screen place-items-center text-sm font-bold text-slate-600">{locale === 'ar' ? 'جار التحقق من جلسة الدخول...' : 'Checking sign-in session...'}</div>;
+  if (isPasswordRecovery) return <AuthScreen defaultMode="updatePassword" />;
   if (!session) return <AuthScreen />;
   if (!user) return <div className="grid min-h-screen place-items-center bg-slate-50 p-6" dir={locale === 'ar' ? 'rtl' : 'ltr'}><section className="max-w-md rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-xl"><h1 className="text-xl font-black text-slate-900">{locale === 'ar' ? 'الحساب بانتظار تفعيل المنشأة' : 'Account activation pending'}</h1><p className="mt-3 text-sm leading-7 text-slate-600">{locale === 'ar' ? 'لم يتم تجهيز ملف مستخدم نشط لهذا الحساب. تواصل مع مسؤول المنشأة.' : 'This account has no active staff profile. Contact your facility administrator.'}</p><button type="button" onClick={() => void logout()} className="mt-6 rounded-xl bg-rose-600 px-5 py-2.5 text-sm font-bold text-white">{locale === 'ar' ? 'تسجيل الخروج' : 'Sign out'}</button></section></div>;
   if (!user.organization_id && !isSuperAdmin) return <OrganizationOnboarding />;

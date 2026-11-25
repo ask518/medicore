@@ -8,13 +8,14 @@ import { hasPermission, RbacModule, RbacAction } from '../config/rbacPermissions
 interface AuthContextType {
   user: User | null; session: Session | null; organization: Organization | null;
   activeBranch: Branch | null; availableBranches: Branch[]; subscription: Subscription | null;
-  isAuthenticated: boolean; isLoading: boolean;
+  isAuthenticated: boolean; isLoading: boolean; isPasswordRecovery: boolean;
   isSuperAdmin: boolean; isOrgOwner: boolean;
   isDoctor: boolean; isReceptionist: boolean; isAccountant: boolean; isPatient: boolean;
   isEnterpriseDedicated: boolean; can: (module: RbacModule, action?: RbacAction) => boolean;
   login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
   register: (email: string, password: string, name_ar: string, name_en?: string) => Promise<{ success: boolean; error?: string }>;
   resetPassword: (email: string) => Promise<{ success: boolean; error?: string }>;
+  updatePassword: (password: string) => Promise<{ success: boolean; error?: string }>;
   switchBranch: (branchId: string) => void; logout: () => Promise<void>;
 }
 
@@ -23,6 +24,11 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [session, setSession] = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isPasswordRecovery, setIsPasswordRecovery] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    const params = new URLSearchParams(`${window.location.search}&${window.location.hash.slice(1)}`);
+    return params.get('type') === 'recovery';
+  });
   const [user, setUser] = useState<User | null>(null);
   const [organization, setOrganization] = useState<Organization | null>(null);
   const [activeBranch, setActiveBranch] = useState<Branch | null>(null);
@@ -58,7 +64,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (alive) await loadIdentity(data.session);
       if (alive) setIsLoading(false);
     });
-    const { data: { subscription: authSubscription } } = supabase.auth.onAuthStateChange((_event, current) => {
+    const { data: { subscription: authSubscription } } = supabase.auth.onAuthStateChange((event, current) => {
+      if (event === 'PASSWORD_RECOVERY') setIsPasswordRecovery(true);
+      if (event === 'SIGNED_OUT') setIsPasswordRecovery(false);
       void loadIdentity(current).finally(() => setIsLoading(false));
     });
     return () => { alive = false; authSubscription.unsubscribe(); };
@@ -76,8 +84,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
   const resetPassword: AuthContextType['resetPassword'] = async email => {
     if (!supabase) return { success: false, error: 'اتصال قاعدة البيانات غير مهيأ.' };
-    const { error } = await supabase.auth.resetPasswordForEmail(email.trim().toLowerCase());
+    const { error } = await supabase.auth.resetPasswordForEmail(email.trim().toLowerCase(), {
+      redirectTo: `${window.location.origin}/`,
+    });
     return error ? { success: false, error: error.message } : { success: true };
+  };
+  const updatePassword: AuthContextType['updatePassword'] = async password => {
+    if (!supabase) return { success: false, error: 'اتصال قاعدة البيانات غير مهيأ.' };
+    const { error } = await supabase.auth.updateUser({ password });
+    if (error) return { success: false, error: error.message };
+    setIsPasswordRecovery(false);
+    window.history.replaceState({}, document.title, `${window.location.pathname}${window.location.search}`);
+    return { success: true };
   };
   const switchBranch = (id: string) => {
     const permitted = availableBranches.find(branch => branch.id === id);
@@ -91,13 +109,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const isSuperAdmin = user?.role === 'super_admin';
   const value = useMemo<AuthContextType>(() => ({
     user, session, organization, activeBranch, availableBranches, subscription, isAuthenticated: Boolean(session && user),
+    isPasswordRecovery,
     isLoading, isSuperAdmin,
     isOrgOwner: user?.role === 'org_owner' || user?.role === 'general_manager',
     isDoctor: user?.role === 'doctor' || user?.role === 'assistant_doctor', isReceptionist: user?.role === 'receptionist',
     isAccountant: user?.role === 'accountant', isPatient: user?.role === 'patient',
     isEnterpriseDedicated: Boolean(organization?.is_enterprise_dedicated || APP_CONFIG.isEnterpriseMode),
-    can, login, register, resetPassword, switchBranch, logout,
-  }), [user, session, organization, activeBranch, availableBranches, subscription, isLoading, isSuperAdmin]);
+    can, login, register, resetPassword, updatePassword, switchBranch, logout,
+  }), [user, session, organization, activeBranch, availableBranches, subscription, isLoading, isPasswordRecovery, isSuperAdmin]);
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
 

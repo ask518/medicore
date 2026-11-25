@@ -3,24 +3,24 @@
 // Real Supabase Identity, Session Management & Enterprise Security
 // ============================================================================
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { useToast } from '../../context/ToastContext';
 import { ShieldCheck, Lock, Mail, User, Eye, EyeOff, ArrowRight } from 'lucide-react';
 
 interface AuthScreenProps {
-  defaultMode?: 'login' | 'register' | 'reset';
+  defaultMode?: 'login' | 'register' | 'reset' | 'updatePassword';
 }
 
 export const AuthScreen: React.FC<AuthScreenProps> = ({
   defaultMode = 'login',
 }) => {
-  const { login, register, resetPassword } = useAuth();
+  const { login, register, resetPassword, updatePassword } = useAuth();
   const { locale, dir } = useLanguage();
   const { success, error, info } = useToast();
 
-  const [mode, setMode] = useState<'login' | 'register' | 'reset'>(defaultMode);
+  const [mode, setMode] = useState<'login' | 'register' | 'reset' | 'updatePassword'>(defaultMode);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -28,6 +28,8 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
   const [nameEn, setNameEn] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+
+  useEffect(() => setMode(defaultMode), [defaultMode]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -41,24 +43,28 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
         } else {
           error(res.error || (locale === 'ar' ? 'بيانات الدخول غير صحيحة' : 'Invalid credentials'));
         }
-      } else if (mode === 'register') {
+      } else if (mode === 'register' || mode === 'updatePassword') {
         if (password.length < 12 || !/[A-Za-z]/.test(password) || !/[0-9]/.test(password)) {
           error(locale === 'ar' ? 'استخدم 12 خانة على الأقل مع حرف لاتيني ورقم.' : 'Use at least 12 characters, including a letter and a number.');
-          setIsLoading(false);
           return;
         }
         if (password !== confirmPassword) {
           error(locale === 'ar' ? 'كلمتا المرور غير متطابقتين' : 'Passwords do not match');
-          setIsLoading(false);
           return;
         }
 
-        const res = await register(email, password, nameAr, nameEn);
+        const res = mode === 'register'
+          ? await register(email, password, nameAr, nameEn)
+          : await updatePassword(password);
         if (res.success) {
-          success(locale === 'ar' ? 'تم إنشاء الحساب. أكّد بريدك الإلكتروني ثم سجّل الدخول لإعداد منشأتك.' : 'Account created. Verify your email, then sign in to set up your facility.');
-          setMode('login');
+          if (mode === 'register') {
+            success(locale === 'ar' ? 'تم إنشاء الحساب. أكّد بريدك الإلكتروني ثم سجّل الدخول لإعداد منشأتك.' : 'Account created. Verify your email, then sign in to set up your facility.');
+            setMode('login');
+          } else {
+            success(locale === 'ar' ? 'تم تحديث كلمة المرور بنجاح.' : 'Your password has been updated.');
+          }
         } else {
-          error(res.error || (locale === 'ar' ? 'فشل إنشاء الحساب' : 'Registration failed'));
+          error(res.error || (locale === 'ar' ? 'تعذر تحديث الحساب' : 'Could not update the account'));
         }
       } else if (mode === 'reset') {
         const res = await resetPassword(email);
@@ -105,16 +111,19 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                 {mode === 'login' && (locale === 'ar' ? 'تسجيل الدخول للمنصة' : 'Sign In to MEDICORE')}
                 {mode === 'register' && (locale === 'ar' ? 'إنشاء حساب جديد' : 'Create New Account')}
                 {mode === 'reset' && (locale === 'ar' ? 'استعادة كلمة المرور' : 'Reset Password')}
+                {mode === 'updatePassword' && (locale === 'ar' ? 'إنشاء كلمة مرور جديدة' : 'Set a New Password')}
               </h1>
               <p className="mt-1 text-xs text-slate-500">
-                {locale === 'ar' ? 'ادخل إلى حسابك للمتابعة' : 'Sign in to continue to your account'}
+                {mode === 'updatePassword'
+                  ? (locale === 'ar' ? 'اختر كلمة مرور جديدة لحسابك' : 'Choose a new password for your account')
+                  : (locale === 'ar' ? 'ادخل إلى حسابك للمتابعة' : 'Sign in to continue to your account')}
               </p>
             </div>
           </div>
         </div>
 
         {/* Mode Switch Tabs */}
-        <div className="grid grid-cols-3 gap-1 p-1 bg-slate-100 rounded-xl mb-4 text-xs font-bold">
+        {mode !== 'updatePassword' && <div className="grid grid-cols-3 gap-1 p-1 bg-slate-100 rounded-xl mb-4 text-xs font-bold">
           <button
             type="button"
             onClick={() => setMode('login')}
@@ -142,7 +151,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
           >
             {locale === 'ar' ? 'استعادة' : 'Reset'}
           </button>
-        </div>
+        </div>}
 
         {/* Form */}
         <form onSubmit={handleSubmit} className="space-y-3.5">
@@ -183,7 +192,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
             </>
           )}
 
-          <div>
+          {mode !== 'updatePassword' && <div>
             <label className="block text-xs font-bold text-slate-700 mb-1">
               {locale === 'ar' ? 'البريد الإلكتروني الرسمي *' : 'Official Email *'}
             </label>
@@ -198,13 +207,15 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                 className="w-full text-xs rounded-xl border border-slate-200 ps-9 pe-3 py-2.5 focus:border-medicore-500 focus:outline-none"
               />
             </div>
-          </div>
+          </div>}
 
           {mode !== 'reset' && (
             <div>
               <div className="flex items-center justify-between mb-1">
                 <label className="text-xs font-bold text-slate-700">
-                  {locale === 'ar' ? 'كلمة المرور *' : 'Password *'}
+                  {mode === 'updatePassword'
+                    ? (locale === 'ar' ? 'كلمة المرور الجديدة *' : 'New password *')
+                    : (locale === 'ar' ? 'كلمة المرور *' : 'Password *')}
                 </label>
                 {mode === 'login' && (
                   <button
@@ -221,7 +232,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                 <input
                   type={showPassword ? 'text' : 'password'}
                   required
-                  minLength={mode === 'register' ? 12 : undefined}
+                  minLength={mode === 'register' || mode === 'updatePassword' ? 12 : undefined}
                   value={password}
                   onChange={e => setPassword(e.target.value)}
                   placeholder="••••••••"
@@ -238,10 +249,12 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
             </div>
           )}
 
-          {mode === 'register' && (
+          {(mode === 'register' || mode === 'updatePassword') && (
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1">
-                {locale === 'ar' ? 'تأكيد كلمة المرور *' : 'Confirm Password *'}
+                {mode === 'updatePassword'
+                  ? (locale === 'ar' ? 'تأكيد كلمة المرور الجديدة *' : 'Confirm new password *')
+                  : (locale === 'ar' ? 'تأكيد كلمة المرور *' : 'Confirm Password *')}
               </label>
               <div className="relative">
                 <Lock className="w-4 h-4 text-slate-400 absolute start-3 top-1/2 -translate-y-1/2" />
@@ -272,6 +285,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                     {mode === 'login' && (locale === 'ar' ? 'دخول المنظومة' : 'Sign In')}
                     {mode === 'register' && (locale === 'ar' ? 'تأكيد التسجيل السحابي' : 'Register Account')}
                     {mode === 'reset' && (locale === 'ar' ? 'إرسال رابط الاستعادة' : 'Send Reset Link')}
+                    {mode === 'updatePassword' && (locale === 'ar' ? 'حفظ كلمة المرور الجديدة' : 'Save new password')}
                   </span>
                   <ArrowRight className="w-3.5 h-3.5" />
                 </>
