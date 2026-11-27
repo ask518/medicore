@@ -23,6 +23,19 @@ const emptyFacility = {
   owner_email: '', owner_name_ar: '', owner_name_en: '',
 };
 
+const getAdminErrorMessage = async (error: unknown, fallback: string) => {
+  const context = (error as { context?: unknown } | null)?.context;
+  if (context instanceof Response) {
+    try {
+      const payload = await context.clone().json() as { error?: unknown };
+      if (typeof payload.error === 'string' && payload.error.trim()) return payload.error;
+    } catch {
+      // Fall through to the Supabase client message when the response isn't JSON.
+    }
+  }
+  return error instanceof Error ? error.message : fallback;
+};
+
 export const SuperAdminDashboard: React.FC<Props> = ({ activeTab, onSelectTab }) => {
   const { locale, t } = useLanguage();
   const { user: currentUser } = useAuth();
@@ -79,7 +92,7 @@ export const SuperAdminDashboard: React.FC<Props> = ({ activeTab, onSelectTab })
     });
     setSaving(false);
     if (invokeError || data?.error) {
-      error(data?.error || invokeError?.message || (ar ? 'تعذر تحديث الحساب.' : 'Could not update account.'));
+      error(data?.error || await getAdminErrorMessage(invokeError, ar ? 'تعذر تحديث الحساب.' : 'Could not update account.'));
       return;
     }
     success(ar ? 'تم تحديث الحساب وتسجيل العملية.' : 'Account updated and audited.');
@@ -94,7 +107,7 @@ export const SuperAdminDashboard: React.FC<Props> = ({ activeTab, onSelectTab })
     const { data, error: invokeError } = await callPlatformAdmin({ action: 'create_facility', ...facility });
     setSaving(false);
     if (invokeError || data?.error) {
-      error(data?.error || invokeError?.message || (ar ? 'تعذر إنشاء المنشأة.' : 'Could not create facility.'));
+      error(data?.error || await getAdminErrorMessage(invokeError, ar ? 'تعذر إنشاء المنشأة.' : 'Could not create facility.'));
       return;
     }
     success(ar ? 'تم إنشاء المنشأة والفرع التجريبي وإرسال دعوة المالك.' : 'Facility and main branch created; owner invitation sent.');
