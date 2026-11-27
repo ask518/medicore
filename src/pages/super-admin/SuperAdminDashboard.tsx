@@ -49,6 +49,8 @@ export const SuperAdminDashboard: React.FC<Props> = ({ activeTab, onSelectTab })
   const [confirmUserSave, setConfirmUserSave] = useState(false);
   const [showFacilityForm, setShowFacilityForm] = useState(false);
   const [confirmFacilityCreate, setConfirmFacilityCreate] = useState(false);
+  const [editingFacility, setEditingFacility] = useState<OrganizationRow | null>(null);
+  const [confirmFacilityUpdate, setConfirmFacilityUpdate] = useState(false);
   const [facility, setFacility] = useState({ ...emptyFacility });
   const [search, setSearch] = useState('');
   const ar = locale === 'ar';
@@ -114,6 +116,27 @@ export const SuperAdminDashboard: React.FC<Props> = ({ activeTab, onSelectTab })
     setFacility({ ...emptyFacility });
     setShowFacilityForm(false);
     setConfirmFacilityCreate(false);
+    await load();
+  };
+
+  const saveFacility = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!editingFacility) return;
+    setSaving(true);
+    const { data, error: invokeError } = await callPlatformAdmin({
+      action: 'update_facility', organization_id: editingFacility.id,
+      name_ar: editingFacility.name_ar, name_en: editingFacility.name_en,
+      facility_type: editingFacility.facility_type, email: editingFacility.email,
+      phone: editingFacility.phone, city: editingFacility.city, address: editingFacility.address,
+    });
+    setSaving(false);
+    if (invokeError || data?.error) {
+      error(data?.error || await getAdminErrorMessage(invokeError, ar ? 'تعذر حفظ بيانات المنشأة.' : 'Could not save facility details.'));
+      return;
+    }
+    success(ar ? 'تم حفظ بيانات المنشأة والفرع الرئيسي في السحابة.' : 'Facility and main branch details were saved to the cloud.');
+    setEditingFacility(null);
+    setConfirmFacilityUpdate(false);
     await load();
   };
 
@@ -183,7 +206,7 @@ export const SuperAdminDashboard: React.FC<Props> = ({ activeTab, onSelectTab })
 
     {activeTab === 'super_admin_orgs' ? <section className="overflow-hidden rounded-2xl border bg-white">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b p-4"><h2 className="font-black">{ar ? 'المنشآت المسجلة' : 'Registered facilities'}</h2><button onClick={() => { setShowFacilityForm(true); setConfirmFacilityCreate(false); }} className="inline-flex items-center gap-2 rounded-xl bg-medicore-600 px-3 py-2 text-xs font-bold text-white"><Plus className="h-4 w-4" />{ar ? 'إنشاء منشأة' : 'Create facility'}</button></div>
-      {loading ? <p className="p-8 text-sm text-slate-500">{ar ? 'جار تحميل البيانات...' : 'Loading...'}</p> : organizations.length === 0 ? <p className="p-8 text-sm text-slate-500">{ar ? 'لا توجد منشآت مسجلة.' : 'No facilities are registered.'}</p> : <div className="overflow-x-auto"><table className="w-full text-start text-xs"><thead className="bg-slate-50"><tr>{[ar ? 'المنشأة' : 'Facility', ar ? 'المدينة' : 'City', ar ? 'الحالة' : 'Status', ar ? 'الفروع' : 'Branches', ar ? 'تاريخ التسجيل' : 'Created'].map(header => <th key={header} className="p-3 text-start">{header}</th>)}</tr></thead><tbody>{organizations.map(org => <tr key={org.id} className="border-t"><td className="p-3 font-bold">{ar ? org.name_ar : org.name_en}<div className="font-normal text-slate-500">{org.email}</div></td><td className="p-3">{org.city}</td><td className="p-3">{statusLabel(org.status)}</td><td className="p-3">{org.branches?.length || 0}</td><td className="p-3">{new Date(org.created_at).toLocaleDateString(ar ? 'ar-EG' : 'en-GB')}</td></tr>)}</tbody></table></div>}
+      {loading ? <p className="p-8 text-sm text-slate-500">{ar ? 'جار تحميل البيانات...' : 'Loading...'}</p> : organizations.length === 0 ? <p className="p-8 text-sm text-slate-500">{ar ? 'لا توجد منشآت مسجلة.' : 'No facilities are registered.'}</p> : <div className="overflow-x-auto"><table className="w-full text-start text-xs"><thead className="bg-slate-50"><tr>{[ar ? 'المنشأة' : 'Facility', ar ? 'المدينة' : 'City', ar ? 'الحالة' : 'Status', ar ? 'الفروع' : 'Branches', ar ? 'تاريخ التسجيل' : 'Created', ar ? 'إجراء' : 'Action'].map(header => <th key={header} className="p-3 text-start">{header}</th>)}</tr></thead><tbody>{organizations.map(org => <tr key={org.id} className="border-t"><td className="p-3 font-bold">{ar ? org.name_ar : org.name_en}<div className="font-normal text-slate-500">{org.email}</div></td><td className="p-3">{org.city}</td><td className="p-3">{statusLabel(org.status)}</td><td className="p-3">{org.branches?.length || 0}</td><td className="p-3">{new Date(org.created_at).toLocaleDateString(ar ? 'ar-EG' : 'en-GB')}</td><td className="p-3"><button onClick={() => { setEditingFacility({ ...org }); setConfirmFacilityUpdate(false); }} className="inline-flex items-center gap-1 rounded-lg border px-3 py-2 font-bold"><Pencil className="h-3.5 w-3.5" />{ar ? 'تعديل' : 'Edit'}</button></td></tr>)}</tbody></table></div>}
     </section> : null}
 
     <p className="text-xs leading-6 text-slate-500">{ar ? 'تغيير الدور أو حالة الحساب يحتاج تأكيدًا صريحًا ويسجل في سجل التدقيق. الحسابات لا تُحذف نهائيًا حتى لا تُفقد ملكية السجلات.' : 'Role and account-status changes require explicit confirmation and are recorded in the audit log. Accounts are not permanently deleted to preserve record ownership.'}</p>
@@ -220,6 +243,20 @@ export const SuperAdminDashboard: React.FC<Props> = ({ activeTab, onSelectTab })
         </div></div>
       </>}
       <div className="flex justify-end gap-2 border-t pt-4"><button type="button" onClick={() => confirmFacilityCreate ? setConfirmFacilityCreate(false) : setShowFacilityForm(false)} className="rounded-xl border px-4 py-2 text-sm font-bold">{ar ? 'رجوع' : 'Back'}</button><button disabled={saving} className="rounded-xl bg-medicore-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-50">{saving ? '...' : confirmFacilityCreate ? (ar ? 'إنشاء وإرسال الدعوة' : 'Create and send invitation') : (ar ? 'مراجعة قبل الإنشاء' : 'Review before creating')}</button></div>
+    </form></div>}
+
+    {editingFacility && <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/50 p-4"><form onSubmit={event => confirmFacilityUpdate ? void saveFacility(event) : (event.preventDefault(), setConfirmFacilityUpdate(true))} className="max-h-[92vh] w-full max-w-2xl space-y-4 overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl">
+      <div className="flex items-center justify-between"><div><h2 className="text-lg font-black">{confirmFacilityUpdate ? (ar ? 'مراجعة تعديل المنشأة' : 'Review facility update') : (ar ? 'تعديل بيانات المنشأة' : 'Edit facility details')}</h2><p className="mt-1 text-xs text-slate-500">{ar ? 'سيتم تحديث المنشأة وفرعها الرئيسي في عملية سحابية موحدة مع تسجيل التغيير.' : 'The facility and its main branch will update together in one audited cloud operation.'}</p></div><button type="button" onClick={() => { setEditingFacility(null); setConfirmFacilityUpdate(false); }} className="rounded-lg p-2 hover:bg-slate-100" aria-label={ar ? 'إغلاق' : 'Close'}><X className="h-4 w-4" /></button></div>
+      {confirmFacilityUpdate ? <div className="space-y-2 rounded-xl bg-amber-50 p-4 text-sm leading-6 text-amber-950"><p>{ar ? `المنشأة: ${editingFacility.name_ar} (${editingFacility.name_en})` : `Facility: ${editingFacility.name_en} (${editingFacility.name_ar})`}</p><p>{ar ? `البريد: ${editingFacility.email}` : `Email: ${editingFacility.email}`}</p><p>{ar ? `الهاتف والمدينة: ${editingFacility.phone} — ${editingFacility.city}` : `Phone and city: ${editingFacility.phone} — ${editingFacility.city}`}</p><p>{ar ? 'سيتم مزامنة بيانات العيادة والفرع الرئيسي وحفظ سجل التغيير.' : 'The clinic and main branch will be synchronized and the change audited.'}</p></div> : <div className="grid gap-3 sm:grid-cols-2">
+        <label className="text-xs font-bold">{ar ? 'اسم المنشأة بالعربية' : 'Facility name (Arabic)'}<input required maxLength={255} value={editingFacility.name_ar} onChange={event => setEditingFacility({ ...editingFacility, name_ar: event.target.value })} className="mt-1 w-full rounded-xl border p-2.5 text-sm" /></label>
+        <label className="text-xs font-bold">{ar ? 'اسم المنشأة بالإنجليزية' : 'Facility name (English)'}<input required maxLength={255} value={editingFacility.name_en} onChange={event => setEditingFacility({ ...editingFacility, name_en: event.target.value })} className="mt-1 w-full rounded-xl border p-2.5 text-sm" /></label>
+        <label className="text-xs font-bold">{ar ? 'نوع المنشأة' : 'Facility type'}<select value={editingFacility.facility_type} onChange={event => setEditingFacility({ ...editingFacility, facility_type: event.target.value as Organization['facility_type'] })} className="mt-1 w-full rounded-xl border bg-white p-2.5 text-sm">{facilityTypes.map(type => <option key={type} value={type}>{type}</option>)}</select></label>
+        <label className="text-xs font-bold">{ar ? 'البريد الرسمي للمنشأة' : 'Facility email'}<input required type="email" value={editingFacility.email} onChange={event => setEditingFacility({ ...editingFacility, email: event.target.value })} className="mt-1 w-full rounded-xl border p-2.5 text-sm" /></label>
+        <label className="text-xs font-bold">{ar ? 'الهاتف' : 'Phone'}<input required maxLength={50} value={editingFacility.phone} onChange={event => setEditingFacility({ ...editingFacility, phone: event.target.value })} className="mt-1 w-full rounded-xl border p-2.5 text-sm" /></label>
+        <label className="text-xs font-bold">{ar ? 'المدينة' : 'City'}<input required maxLength={100} value={editingFacility.city} onChange={event => setEditingFacility({ ...editingFacility, city: event.target.value })} className="mt-1 w-full rounded-xl border p-2.5 text-sm" /></label>
+        <label className="text-xs font-bold sm:col-span-2">{ar ? 'العنوان' : 'Address'}<input required maxLength={500} value={editingFacility.address || ''} onChange={event => setEditingFacility({ ...editingFacility, address: event.target.value })} className="mt-1 w-full rounded-xl border p-2.5 text-sm" /></label>
+      </div>}
+      <div className="flex justify-end gap-2 border-t pt-4"><button type="button" onClick={() => confirmFacilityUpdate ? setConfirmFacilityUpdate(false) : setEditingFacility(null)} className="rounded-xl border px-4 py-2 text-sm font-bold">{ar ? 'رجوع' : 'Back'}</button><button disabled={saving} className="rounded-xl bg-medicore-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-50">{saving ? '...' : confirmFacilityUpdate ? (ar ? 'تأكيد وحفظ' : 'Confirm and save') : (ar ? 'مراجعة التعديل' : 'Review changes')}</button></div>
     </form></div>}
   </main>;
 };

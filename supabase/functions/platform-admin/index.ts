@@ -52,6 +52,34 @@ Deno.serve(async request => {
     const body = await request.json();
     const action = String(body.action || '');
 
+    if (action === 'update_facility') {
+      const organizationId = String(body.organization_id || '');
+      const nameAr = String(body.name_ar || '').trim();
+      const nameEn = String(body.name_en || '').trim();
+      const email = String(body.email || '').trim().toLowerCase();
+      const phone = String(body.phone || '').trim();
+      const city = String(body.city || '').trim();
+      const address = String(body.address || '').trim();
+      const facilityType = String(body.facility_type || '');
+      if (!organizationId || !nameAr || !nameEn || !emailPattern.test(email) || !phone || !city || !address
+          || !facilityTypes.includes(facilityType)) {
+        return response({ error: 'Complete all facility details with a valid email.' }, 400);
+      }
+      const { data: update, error: updateError } = await admin.rpc('platform_update_facility', {
+        p_actor_id: actor.id,
+        p_organization_id: organizationId,
+        p_name_ar: nameAr,
+        p_name_en: nameEn,
+        p_facility_type: facilityType,
+        p_email: email,
+        p_phone: phone,
+        p_city: city,
+        p_address: address,
+      });
+      if (updateError || !update?.[0]) return response({ error: updateError?.message || 'Facility update was not saved; no changes were committed.' }, 500);
+      return response({ success: true, organization_id: organizationId, main_branch_id: update[0].main_branch_id });
+    }
+
     if (action === 'update_user') {
       const targetId = String(body.user_id || '');
       const nameAr = String(body.name_ar || '').trim();
@@ -97,7 +125,7 @@ Deno.serve(async request => {
         is_active: isActive,
         updated_at: new Date().toISOString(),
       }).eq('id', targetId);
-      if (profileError) return response({ error: 'Could not save the account profile.' }, 500);
+      if (profileError) return response({ error: `Could not save the account profile: ${profileError.message}` }, 500);
 
       if (target.is_active !== isActive) {
         const { error: authUpdateError } = await admin.auth.admin.updateUserById(targetId, {
@@ -108,7 +136,7 @@ Deno.serve(async request => {
             name_ar: target.name_ar, name_en: target.name_en, is_active: target.is_active,
             role: target.role, updated_at: new Date().toISOString(),
           }).eq('id', targetId);
-          return response({ error: 'Account status could not be synchronized with authentication; no change was kept.' }, 500);
+          return response({ error: `Account status could not be synchronized with authentication; no change was kept. ${authUpdateError.message}` }, 500);
         }
       }
 
@@ -132,7 +160,7 @@ Deno.serve(async request => {
         if (target.is_active !== isActive) {
           await admin.auth.admin.updateUserById(targetId, { ban_duration: target.is_active ? 'none' : '876000h' });
         }
-        return response({ error: 'The audit entry could not be saved; the account change was rolled back.' }, 500);
+        return response({ error: `The audit entry could not be saved; the account change was rolled back. ${auditError.message}` }, 500);
       }
       return response({ success: true });
     }
@@ -180,7 +208,7 @@ Deno.serve(async request => {
       if (provisionError || !provision?.[0]) {
         await admin.from('users').update({ is_active: false }).eq('id', invite.user.id);
         await admin.auth.admin.updateUserById(invite.user.id, { ban_duration: '876000h' });
-        return response({ error: 'The owner invitation was sent, but facility setup failed. The invited account was disabled; contact support before retrying.' }, 500);
+        return response({ error: `The owner invitation was sent, but facility setup failed. The invited account was disabled. ${provisionError?.message || 'Contact support before retrying.'}` }, 500);
       }
       return response({ success: true, organization_id: provision[0].organization_id, branch_id: provision[0].branch_id });
     }

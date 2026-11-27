@@ -1,12 +1,12 @@
 # MEDICORE – Enterprise Multi-Tenant Healthcare Management SaaS
 ## المنصة السحابية الموحدة لإدارة العيادات والمجمعات والمراكز الطبية التخصصية
 
-> **Current implementation status (2026-11-27):** Production uses Vercel for the app and Supabase for Auth, Postgres, RLS, and Edge Functions. The linked project has 12 migrations applied. Platform administration can provision a facility plus main branch and trial subscription, invite its owner, and edit or disable accounts through a JWT-verified, audited Edge Function. Inventory movements are branch-scoped and ledger-backed; insurance policies are role-scoped. Production currently has one platform administrator and no organizations, branches, or patient rows. No clinic acceptance walkthrough has been completed yet. Laboratory, radiology, HR, specialty canvases, and patient portal remain disabled until their persistence and access controls are complete.
+> **Current implementation status (2026-11-27):** Production uses Vercel for the app and Supabase for Auth, Postgres, RLS, and Edge Functions. The linked project has 14 migrations applied. Platform administration can provision and update facilities plus main branches, issue owner invitations, and edit or disable accounts through JWT-verified, audited server workflows. Inventory movements are branch-scoped and ledger-backed; insurance policies are role-scoped. Production currently has one platform administrator and no organizations, branches, or patient rows. No clinic acceptance walkthrough has been completed yet. Laboratory, radiology, HR, specialty canvases, and patient portal remain disabled until their persistence and access controls are complete.
 
 ### Supabase setup required before use
 
 1. Configure `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` in the deployment environment.
-2. For a new project, apply every migration in `supabase/migrations/` in timestamp order. The linked production project currently has all 12 applied.
+2. For a new project, apply every migration in `supabase/migrations/` in timestamp order. The linked production project currently has all 14 applied.
 3. Deploy `supabase/functions/invite-staff` and `supabase/functions/platform-admin`. Configure the `APP_ORIGIN` secret and add the production app URL to Supabase Auth's redirect allow-list.
 4. Create the first platform administrator by registering its email through Supabase Auth, then promote that exact profile to `super_admin` from the trusted SQL editor with a service role. Never add a client-side bootstrap password or role picker.
 5. Configure email verification, password recovery, backups, and MFA policy in the Supabase project.
@@ -227,6 +227,8 @@ npm run build
    - `20261127000001_inventory_manager_role.sql`
    - `20261127000002_production_module_hardening.sql`
    - `20261127000003_platform_admin_workflows.sql`
+   - `20261127000004_platform_facility_updates.sql`
+   - `20261127000005_fix_platform_facility_update.sql`
 3. انسخ الـ `Project URL` و الـ `anon public key` من إعدادات المشروع إلى ملف `.env`:
 ```env
 VITE_SUPABASE_URL=https://your-project.supabase.co
