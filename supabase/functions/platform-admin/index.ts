@@ -189,15 +189,39 @@ Deno.serve(async request => {
       if (existingError) return response({ error: 'Could not check the owner email.' }, 500);
       if (existing) return response({ error: 'This email already has a MEDICORE account. Use an unregistered owner email.' }, 409);
 
+      const ownerMetadata = { name_ar: ownerNameAr, name_en: ownerNameEn };
+      const redirectTo = `${appOrigin.replace(/\/$/, '')}/`;
       const { data: invite, error: inviteError } = await admin.auth.admin.inviteUserByEmail(ownerEmail, {
-        data: { name_ar: ownerNameAr, name_en: ownerNameEn },
-        redirectTo: `${appOrigin.replace(/\/$/, '')}/`,
+        data: ownerMetadata,
+        redirectTo,
       });
-      if (inviteError || !invite.user) return response({ error: inviteError?.message || 'Owner invitation failed.' }, 400);
+      let ownerUser = invite?.user || null;
+      let manualInvitationLink: string | null = null;
+      const emailRateLimited = /email rate limit exceeded|over_email_send_rate_limit/i.test(inviteError?.message || '');
+      if (inviteError && emailRateLimited) {
+        // The built-in Supabase mailer is limited to two emails/hour. Keep the
+        // facility workflow available without weakening authentication: create
+        // an invitation link server-side and expose it only to this super admin.
+        const { data: generated, error: linkError } = await admin.auth.admin.generateLink({
+          type: 'invite',
+          email: ownerEmail,
+          options: { data: ownerMetadata, redirectTo },
+        });
+        if (!linkError && generated?.user && generated.properties?.action_link) {
+          ownerUser = generated.user;
+          manualInvitationLink = generated.properties.action_link;
+        } else {
+          return response({
+            error: `Supabase email is rate limited and a one-time invitation link could not be generated. ${linkError?.message || 'Retry after the mail limit resets or configure custom SMTP.'}`,
+          }, 429);
+        }
+      } else if (inviteError || !ownerUser) {
+        return response({ error: inviteError?.message || 'Owner invitation failed.' }, 400);
+      }
 
       const { data: provision, error: provisionError } = await admin.rpc('platform_provision_facility', {
         p_actor_id: actor.id,
-        p_owner_user_id: invite.user.id,
+        p_owner_user_id: ownerUser.id,
         p_owner_email: ownerEmail,
         p_owner_name_ar: ownerNameAr,
         p_owner_name_en: ownerNameEn,
@@ -210,11 +234,17 @@ Deno.serve(async request => {
         p_facility_type: facilityType,
       });
       if (provisionError || !provision?.[0]) {
-        await admin.from('users').update({ is_active: false }).eq('id', invite.user.id);
-        await admin.auth.admin.updateUserById(invite.user.id, { ban_duration: '876000h' });
-        return response({ error: `The owner invitation was sent, but facility setup failed. The invited account was disabled. ${provisionError?.message || 'Contact support before retrying.'}` }, 500);
+        await admin.from('users').update({ is_active: false }).eq('id', ownerUser.id);
+        await admin.auth.admin.updateUserById(ownerUser.id, { ban_duration: '876000h' });
+        return response({ error: `The owner invitation was prepared, but facility setup failed. The account was disabled. ${provisionError?.message || 'Contact support before retrying.'}` }, 500);
       }
-      return response({ success: true, organization_id: provision[0].organization_id, branch_id: provision[0].branch_id });
+      return response({
+        success: true,
+        organization_id: provision[0].organization_id,
+        branch_id: provision[0].branch_id,
+        invitation_delivery: manualInvitationLink ? 'manual_link' : 'email',
+        ...(manualInvitationLink ? { invitation_link: manualInvitationLink } : {}),
+      });
     }
 
     return response({ error: 'Unsupported platform administration action.' }, 400);

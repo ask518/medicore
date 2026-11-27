@@ -52,6 +52,7 @@ export const SuperAdminDashboard: React.FC<Props> = ({ activeTab, onSelectTab })
   const [editingFacility, setEditingFacility] = useState<OrganizationRow | null>(null);
   const [confirmFacilityUpdate, setConfirmFacilityUpdate] = useState(false);
   const [facility, setFacility] = useState({ ...emptyFacility });
+  const [manualInvitation, setManualInvitation] = useState<{ email: string; link: string } | null>(null);
   const [search, setSearch] = useState('');
   const ar = locale === 'ar';
 
@@ -112,7 +113,12 @@ export const SuperAdminDashboard: React.FC<Props> = ({ activeTab, onSelectTab })
       error(data?.error || await getAdminErrorMessage(invokeError, ar ? 'تعذر إنشاء المنشأة.' : 'Could not create facility.'));
       return;
     }
-    success(ar ? 'تم إنشاء المنشأة والفرع التجريبي وإرسال دعوة المالك.' : 'Facility and main branch created; owner invitation sent.');
+    if (data?.invitation_link) {
+      setManualInvitation({ email: facility.owner_email, link: data.invitation_link });
+      success(ar ? 'تم إنشاء المنشأة. حد البريد منع الإرسال التلقائي؛ رابط التفعيل جاهز.' : 'Facility created. Email sending is rate limited; a secure activation link is ready.');
+    } else {
+      success(ar ? 'تم إنشاء المنشأة والفرع التجريبي وإرسال دعوة المالك.' : 'Facility and main branch created; owner invitation sent.');
+    }
     setFacility({ ...emptyFacility });
     setShowFacilityForm(false);
     setConfirmFacilityCreate(false);
@@ -225,7 +231,7 @@ export const SuperAdminDashboard: React.FC<Props> = ({ activeTab, onSelectTab })
     </form></div>}
 
     {showFacilityForm && <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/50 p-4"><form onSubmit={event => confirmFacilityCreate ? void createFacility(event) : (event.preventDefault(), setConfirmFacilityCreate(true))} className="max-h-[92vh] w-full max-w-2xl space-y-4 overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl">
-      <div className="flex items-center justify-between"><div><h2 className="text-lg font-black">{confirmFacilityCreate ? (ar ? 'مراجعة إنشاء المنشأة' : 'Review facility creation') : (ar ? 'إنشاء منشأة وعيادة رئيسية' : 'Create facility and main branch')}</h2><p className="mt-1 text-xs text-slate-500">{ar ? 'سيُرسل النظام دعوة تفعيل إلى البريد الذي تدخله لمالك المنشأة.' : 'The system will send an activation invitation to the facility owner email you enter.'}</p></div><button type="button" onClick={() => { setShowFacilityForm(false); setConfirmFacilityCreate(false); }} className="rounded-lg p-2 hover:bg-slate-100" aria-label={ar ? 'إغلاق' : 'Close'}><X className="h-4 w-4" /></button></div>
+      <div className="flex items-center justify-between"><div><h2 className="text-lg font-black">{confirmFacilityCreate ? (ar ? 'مراجعة إنشاء المنشأة' : 'Review facility creation') : (ar ? 'إنشاء منشأة وعيادة رئيسية' : 'Create facility and main branch')}</h2><p className="mt-1 text-xs text-slate-500">{ar ? 'سيحاول النظام إرسال دعوة للمالك، وإذا بلغ حد البريد سيعرض لك رابط تفعيل آمن.' : 'The system will send an owner invitation; if email delivery is rate limited, it will provide a secure activation link.'}</p></div><button type="button" onClick={() => { setShowFacilityForm(false); setConfirmFacilityCreate(false); }} className="rounded-lg p-2 hover:bg-slate-100" aria-label={ar ? 'إغلاق' : 'Close'}><X className="h-4 w-4" /></button></div>
       {confirmFacilityCreate ? <div className="space-y-2 rounded-xl bg-amber-50 p-4 text-sm leading-6 text-amber-950"><p>{ar ? `المنشأة: ${facility.name_ar} (${facility.name_en})` : `Facility: ${facility.name_en} (${facility.name_ar})`}</p><p>{ar ? `نوع المنشأة: ${facility.facility_type}` : `Facility type: ${facility.facility_type}`}</p><p>{ar ? `دعوة المالك ستُرسل إلى: ${facility.owner_email}` : `Owner invitation will be sent to: ${facility.owner_email}`}</p><p>{ar ? 'سيُنشأ فرع رئيسي واشتراك تجريبي لمدة 14 يومًا.' : 'A main branch and a 14-day trial subscription will be created.'}</p></div> : <>
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="text-xs font-bold">{ar ? 'اسم المنشأة بالعربية' : 'Facility name (Arabic)'}<input required maxLength={255} value={facility.name_ar} onChange={event => setFacility({ ...facility, name_ar: event.target.value })} className="mt-1 w-full rounded-xl border p-2.5 text-sm" /></label>
@@ -242,7 +248,7 @@ export const SuperAdminDashboard: React.FC<Props> = ({ activeTab, onSelectTab })
           <label className="text-xs font-bold sm:col-span-2">{ar ? 'بريد المالك (سيستقبل دعوة)' : 'Owner email (will receive an invitation)'}<input required type="email" value={facility.owner_email} onChange={event => setFacility({ ...facility, owner_email: event.target.value })} className="mt-1 w-full rounded-xl border p-2.5 text-sm" /></label>
         </div></div>
       </>}
-      <div className="flex justify-end gap-2 border-t pt-4"><button type="button" onClick={() => confirmFacilityCreate ? setConfirmFacilityCreate(false) : setShowFacilityForm(false)} className="rounded-xl border px-4 py-2 text-sm font-bold">{ar ? 'رجوع' : 'Back'}</button><button disabled={saving} className="rounded-xl bg-medicore-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-50">{saving ? '...' : confirmFacilityCreate ? (ar ? 'إنشاء وإرسال الدعوة' : 'Create and send invitation') : (ar ? 'مراجعة قبل الإنشاء' : 'Review before creating')}</button></div>
+      <div className="flex justify-end gap-2 border-t pt-4"><button type="button" onClick={() => confirmFacilityCreate ? setConfirmFacilityCreate(false) : setShowFacilityForm(false)} className="rounded-xl border px-4 py-2 text-sm font-bold">{ar ? 'رجوع' : 'Back'}</button><button disabled={saving} className="rounded-xl bg-medicore-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-50">{saving ? '...' : confirmFacilityCreate ? (ar ? 'إنشاء المنشأة وبدء التفعيل' : 'Create facility and start activation') : (ar ? 'مراجعة قبل الإنشاء' : 'Review before creating')}</button></div>
     </form></div>}
 
     {editingFacility && <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/50 p-4"><form onSubmit={event => confirmFacilityUpdate ? void saveFacility(event) : (event.preventDefault(), setConfirmFacilityUpdate(true))} className="max-h-[92vh] w-full max-w-2xl space-y-4 overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl">
@@ -258,5 +264,10 @@ export const SuperAdminDashboard: React.FC<Props> = ({ activeTab, onSelectTab })
       </div>}
       <div className="flex justify-end gap-2 border-t pt-4"><button type="button" onClick={() => confirmFacilityUpdate ? setConfirmFacilityUpdate(false) : setEditingFacility(null)} className="rounded-xl border px-4 py-2 text-sm font-bold">{ar ? 'رجوع' : 'Back'}</button><button disabled={saving} className="rounded-xl bg-medicore-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-50">{saving ? '...' : confirmFacilityUpdate ? (ar ? 'تأكيد وحفظ' : 'Confirm and save') : (ar ? 'مراجعة التعديل' : 'Review changes')}</button></div>
     </form></div>}
+    {manualInvitation && <div className="fixed inset-0 z-[60] grid place-items-center bg-slate-950/60 p-4"><section role="dialog" aria-modal="true" aria-labelledby="manual-invitation-title" className="w-full max-w-xl space-y-4 rounded-2xl bg-white p-6 shadow-2xl">
+      <div><h2 id="manual-invitation-title" className="text-lg font-black">{ar ? 'رابط تفعيل مالك المنشأة' : 'Facility owner activation link'}</h2><p className="mt-2 text-sm leading-6 text-slate-600">{ar ? `تعذر إرسال البريد بسبب حد Supabase الحالي. انسخ الرابط وافتحه الآن لتفعيل الحساب: ${manualInvitation.email}. الرابط مؤقت وسري؛ لا تشاركه مع أي شخص آخر.` : `Supabase's current email limit blocked delivery. Open this temporary, private link now to activate ${manualInvitation.email}. Do not share it with anyone else.`}</p></div>
+      <input aria-label={ar ? 'رابط التفعيل' : 'Activation link'} readOnly value={manualInvitation.link} onFocus={event => event.currentTarget.select()} className="w-full rounded-xl border bg-slate-50 p-3 text-xs" />
+      <div className="flex flex-wrap justify-end gap-2"><button type="button" onClick={() => { void navigator.clipboard.writeText(manualInvitation.link).then(() => success(ar ? 'تم نسخ رابط التفعيل.' : 'Activation link copied.')).catch(() => error(ar ? 'تعذر النسخ. حدد الرابط وانسخه يدويًا.' : 'Copy failed. Select and copy the link manually.')); }} className="rounded-xl border px-4 py-2 text-sm font-bold">{ar ? 'نسخ الرابط' : 'Copy link'}</button><a href={manualInvitation.link} className="rounded-xl bg-medicore-600 px-4 py-2 text-sm font-bold text-white">{ar ? 'فتح رابط التفعيل' : 'Open activation link'}</a><button type="button" onClick={() => setManualInvitation(null)} className="rounded-xl border px-4 py-2 text-sm font-bold">{ar ? 'إغلاق' : 'Close'}</button></div>
+    </section></div>}
   </main>;
 };
