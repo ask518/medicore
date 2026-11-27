@@ -12,7 +12,7 @@ import { Patient, BloodGroupType, GenderType, InsuranceCompany } from '../../typ
 import { 
   Users, Search, Plus, UserPlus, Phone, Calendar, Heart, 
   AlertTriangle, Clock, FileText, ChevronRight, X, ShieldAlert,
-  Printer, MessageCircle
+  Printer, MessageCircle, KeyRound
 } from 'lucide-react';
 import {
   buildTemplateMessage, logAndOpenWhatsApp, logAndStartCall, NotificationTemplateKey
@@ -63,6 +63,8 @@ export const Patients: React.FC = () => {
   const [insuranceCoveragePercent, setInsuranceCoveragePercent] = useState('80');
   const [waModalOpen, setWaModalOpen] = useState(false);
   const [waTemplate, setWaTemplate] = useState<NotificationTemplateKey>('follow_up_reminder');
+  const [portalInviteInfo, setPortalInviteInfo] = useState<{ mrn: string; code: string; expiresAt: string } | null>(null);
+  const [issuingPortalCode, setIssuingPortalCode] = useState(false);
   const [waMessage, setWaMessage] = useState('');
 
   const orgId = organization?.id || '';
@@ -364,6 +366,33 @@ export const Patients: React.FC = () => {
                 >
                   <MessageCircle className="w-3.5 h-3.5" />
                   <span className="hidden sm:inline">{locale === 'ar' ? 'واتساب' : 'WhatsApp'}</span>
+                </button>
+                <button
+                  type="button"
+                  disabled={issuingPortalCode}
+                  onClick={async () => {
+                    if (!supabase || !selectedPatient) return;
+                    setIssuingPortalCode(true);
+                    const { data, error: rpcErr } = await supabase.rpc('generate_patient_portal_code', {
+                      p_patient_id: selectedPatient.id,
+                    });
+                    setIssuingPortalCode(false);
+                    const row = Array.isArray(data) ? data[0] : data;
+                    if (rpcErr || !row?.activation_code) {
+                      error(locale === 'ar' ? 'تعذر إصدار كود بوابة المريض.' : 'Could not issue patient portal activation code.');
+                      return;
+                    }
+                    setPortalInviteInfo({
+                      mrn: row.mrn,
+                      code: row.activation_code,
+                      expiresAt: row.expires_at,
+                    });
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-teal-50 hover:bg-teal-100 text-teal-800 border border-teal-200 text-xs font-bold disabled:opacity-50"
+                  title={locale === 'ar' ? 'إصدار كود ربط بوابة المريض' : 'Issue Patient Portal Activation Code'}
+                >
+                  <KeyRound className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">{locale === 'ar' ? 'كود البوابة' : 'Portal Code'}</span>
                 </button>
                 <button
                   type="button"
@@ -788,6 +817,66 @@ export const Patients: React.FC = () => {
                     setWaModalOpen(false);
                   }
                 })}
+                className="px-5 py-2 text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl inline-flex items-center gap-1.5"
+              >
+                <MessageCircle className="w-4 h-4" />
+                <span>{locale === 'ar' ? 'إرسال عبر واتساب' : 'Send via WhatsApp'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Patient Portal Activation Code Modal */}
+      {portalInviteInfo && selectedPatient && (
+        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-100 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h3 className="font-bold text-slate-900 text-sm flex items-center gap-2">
+                <KeyRound className="w-5 h-5 text-teal-600" />
+                <span>{locale === 'ar' ? 'كود تفعيل بوابة المريض' : 'Patient Portal Activation Code'}</span>
+              </h3>
+              <button type="button" onClick={() => setPortalInviteInfo(null)} className="text-slate-400 hover:text-slate-700"><X className="w-4 h-4" /></button>
+            </div>
+            <p className="text-xs text-slate-600 leading-6">
+              {locale === 'ar'
+                ? `يستخدم المريض ${selectedPatient.first_name_ar} ${selectedPatient.last_name_ar} هذه البيانات بعد تسجيل الدخول لربط ملفه الطبي بشكل موثق (صالح لمدة 7 أيام):`
+                : `Share these clinic-verified credentials with the patient to link their medical record securely (valid for 7 days):`}
+            </p>
+            <div className="rounded-2xl bg-slate-50 border border-slate-200 p-4 space-y-2 text-xs">
+              <div className="flex justify-between">
+                <span className="text-slate-500">MRN:</span>
+                <span className="font-mono font-black text-slate-900">{portalInviteInfo.mrn}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">{locale === 'ar' ? 'كود التفعيل:' : 'Activation Code:'}</span>
+                <span className="font-mono font-black text-teal-700">{portalInviteInfo.code}</span>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard?.writeText(`MRN: ${portalInviteInfo.mrn}\nCode: ${portalInviteInfo.code}`);
+                  success(locale === 'ar' ? 'تم نسخ بيانات الربط.' : 'Portal link code copied.');
+                }}
+                className="px-4 py-2 text-xs font-bold border border-slate-200 rounded-xl hover:bg-slate-50"
+              >
+                {locale === 'ar' ? 'نسخ' : 'Copy'}
+              </button>
+              <button
+                type="button"
+                onClick={() => void logAndOpenWhatsApp({
+                  organizationId: orgId,
+                  branchId: activeBranch?.id,
+                  patientId: selectedPatient.id,
+                  phone: selectedPatient.whatsapp || selectedPatient.phone,
+                  templateKey: 'custom',
+                  message: locale === 'ar'
+                    ? `مرحباً ${selectedPatient.first_name_ar}، لربط ملفك الطبي في ${organization.name_ar} على بوابة المريض استخدم:\nرقم الملف (MRN): ${portalInviteInfo.mrn}\nكود التفعيل: ${portalInviteInfo.code}\nصالح لمدة 7 أيام.`
+                    : `Hello ${selectedPatient.first_name_en || selectedPatient.first_name_ar}, use these details to link your ${organization.name_en} Patient Portal:\nMRN: ${portalInviteInfo.mrn}\nCode: ${portalInviteInfo.code}\nValid for 7 days.`,
+                  userId: user?.id,
+                }).then(() => setPortalInviteInfo(null))}
                 className="px-5 py-2 text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl inline-flex items-center gap-1.5"
               >
                 <MessageCircle className="w-4 h-4" />

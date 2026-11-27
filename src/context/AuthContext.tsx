@@ -18,6 +18,7 @@ interface AuthContextType {
   resetPassword: (email: string) => Promise<{ success: boolean; error?: string }>;
   updatePassword: (password: string) => Promise<{ success: boolean; error?: string }>;
   switchBranch: (branchId: string) => void;
+  refreshIdentity: () => Promise<void>;
   enterFacilitySupport: (organizationId: string) => Promise<{ success: boolean; error?: string }>;
   exitFacilitySupport: (reason?: 'user_exit' | 'expired') => Promise<void>;
   logout: () => Promise<void>;
@@ -49,7 +50,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setSupportSession(null); branchIdRef.current = '';
     if (!current || !supabase) return;
     const { data: profile, error: profileError } = await supabase.from('users').select('*').eq('id', current.user.id).maybeSingle();
-    if (profileError || !profile || !profile.is_active) return;
+    if (profileError || !profile) return;
+    if (!profile.is_active && profile.role !== 'patient') return;
     const typedUser = profile as User;
     setUser(typedUser);
     if (!typedUser.organization_id) return;
@@ -124,6 +126,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
     return { success: true };
   };
+  const refreshIdentity = useCallback(async () => {
+    if (!supabase) return;
+    const { data } = await supabase.auth.getSession();
+    await loadIdentity(data.session);
+  }, [loadIdentity]);
+
   const switchBranch = (id: string) => {
     const permitted = availableBranches.find(branch => branch.id === id);
     if (permitted) { branchIdRef.current = id; setActiveBranch(permitted); }
@@ -194,8 +202,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     isDoctor: user?.role === 'doctor' || user?.role === 'assistant_doctor', isReceptionist: user?.role === 'receptionist',
     isAccountant: user?.role === 'accountant', isPatient: user?.role === 'patient',
     isEnterpriseDedicated: Boolean(organization?.is_enterprise_dedicated || APP_CONFIG.isEnterpriseMode),
-    can, login, register, resetPassword, updatePassword, switchBranch, enterFacilitySupport, exitFacilitySupport, logout,
-  }), [user, session, organization, activeBranch, availableBranches, subscription, isLoading, isPasswordRecovery, isSuperAdmin, isFacilitySupportMode, supportSession, enterFacilitySupport, exitFacilitySupport]);
+    can, login, register, resetPassword, updatePassword, switchBranch, refreshIdentity, enterFacilitySupport, exitFacilitySupport, logout,
+  }), [user, session, organization, activeBranch, availableBranches, subscription, isLoading, isPasswordRecovery, isSuperAdmin, isFacilitySupportMode, supportSession, enterFacilitySupport, exitFacilitySupport, refreshIdentity]);
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
 

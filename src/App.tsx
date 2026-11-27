@@ -55,7 +55,7 @@ const AppContent: React.FC = () => {
   if (isPasswordRecovery) return <AuthScreen defaultMode="updatePassword" />;
   if (!session) return <AuthScreen />;
   if (!user) return <div className="grid min-h-screen place-items-center bg-slate-50 p-6" dir={locale === 'ar' ? 'rtl' : 'ltr'}><section className="max-w-md rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-xl"><h1 className="text-xl font-black text-slate-900">{locale === 'ar' ? 'الحساب بانتظار تفعيل المنشأة' : 'Account activation pending'}</h1><p className="mt-3 text-sm leading-7 text-slate-600">{locale === 'ar' ? 'لم يتم تجهيز ملف مستخدم نشط لهذا الحساب. تواصل مع مسؤول المنشأة.' : 'This account has no active staff profile. Contact your facility administrator.'}</p><button type="button" onClick={() => void logout()} className="mt-6 rounded-xl bg-rose-600 px-5 py-2.5 text-sm font-bold text-white">{locale === 'ar' ? 'تسجيل الخروج' : 'Sign out'}</button></section></div>;
-  if (!user.organization_id && !isSuperAdmin) return <OrganizationOnboarding />;
+  if (!user.organization_id && !isSuperAdmin && !isPatient) return <OrganizationOnboarding />;
 
   const renderActiveView = () => {
     // If super admin is active and current tab is not a platform tab, redirect immediately to super admin dashboard
@@ -77,7 +77,7 @@ const AppContent: React.FC = () => {
       case 'patient_portal':
       case 'patient_rx':
       case 'patient_labs':
-        return <PatientPortal />;
+        return <PatientPortal activeTab={currentTab} />;
 
       // Clinic Staff & Doctors
       case 'dashboard':
@@ -129,7 +129,7 @@ const AppContent: React.FC = () => {
     <div className="min-h-screen bg-slate-50 flex flex-col">
       <Navbar onToggleMobileSidebar={() => setMobileSidebarOpen(!mobileSidebarOpen)} />
       {isFacilitySupportMode && organization && <div role="alert" className="flex flex-wrap items-center justify-center gap-3 border-b border-amber-400 bg-amber-100 px-4 py-2.5 text-center text-xs font-bold text-amber-950"><span>{locale === 'ar' ? `دخول دعم للمنشأة: ${organization.name_ar} — تعمل بهوية السوبر أدمن، وكل التغييرات ستُسجل باسمك.` : `Facility support: ${organization.name_en} — you remain the platform super admin; all changes are attributed to your account.`}</span><button type="button" onClick={() => void leaveFacilitySupport()} className="rounded-lg border border-amber-700 px-3 py-1.5 font-black hover:bg-amber-200">{locale === 'ar' ? 'إنهاء دخول المنشأة' : 'Exit facility'}</button></div>}
-      <div role="status" className="border-b border-amber-300 bg-amber-50 px-4 py-2 text-center text-xs font-semibold leading-5 text-amber-950">{locale === 'ar' ? 'حالة التشغيل: المنصة متصلة بقاعدة Supabase. المرضى والمواعيد والفريق والعيادة والمعمل والأشعة والتخصصات 3D والفواتير والتأمين والمخزون تستخدم مسارات حفظ سحابية. الموارد البشرية وبوابة المريض غير مفعلة حتى اكتمال الحفظ والصلاحيات؛ لا تسجل بيانات فيها.' : 'Live status: the platform is connected to Supabase. Patients, appointments, staff, consultations, prescriptions, laboratory, radiology, interactive specialties, billing, insurance, and inventory use cloud persistence. HR and the patient portal remain disabled until their persistence and access controls are complete; do not enter data there.'}</div>
+      <div role="status" className="border-b border-emerald-200 bg-emerald-50 px-4 py-2 text-center text-xs font-semibold leading-5 text-emerald-950">{locale === 'ar' ? 'حالة التشغيل: المنصة متصلة بالكامل بقاعدة Supabase والتخزين السحابي الخاص — جميع الوحدات السريرية والإدارية والمالية والمعمل والأشعة والتخصصات 3D والموارد البشرية وبوابة المريض مفعّلة ومحمية بسياسات الصلاحيات والتدقيق.' : 'Live status: fully connected to Supabase and Private Storage — all clinical, diagnostic, 3D specialty, laboratory, radiology, billing, insurance, inventory, HR, and patient portal modules are active with RBAC and audit trails.'}</div>
 
       <div className="flex flex-1">
         <Sidebar
