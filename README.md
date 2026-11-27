@@ -1,17 +1,17 @@
 # MEDICORE – Enterprise Multi-Tenant Healthcare Management SaaS
 ## المنصة السحابية الموحدة لإدارة العيادات والمجمعات والمراكز الطبية التخصصية
 
-> **Current implementation status (2026-11-27):** The production app is connected to Supabase. Cloud workflows cover sign-in/out, organization onboarding, patient create/list/CSV import, appointments, staff invitations, allergies and medical history, signed consultations, prescriptions, invoicing/payments, branches, settings, read-only reports, insurance contracts/claims, and pharmacy inventory. All 11 linked database migrations are applied, including branch-scoped inventory movement controls and insurance write policies. Laboratory, radiology, HR, specialty canvases, and patient portal remain disabled because persistence and access controls are incomplete. Those modules must not be used for real records. Complete first-use checks with the clinic's own staff before entering patient data.
+> **Current implementation status (2026-11-27):** Production uses Vercel for the app and Supabase for Auth, Postgres, RLS, and Edge Functions. The linked project has 12 migrations applied. Platform administration can provision a facility plus main branch and trial subscription, invite its owner, and edit or disable accounts through a JWT-verified, audited Edge Function. Inventory movements are branch-scoped and ledger-backed; insurance policies are role-scoped. Production currently has one platform administrator and no organizations, branches, or patient rows. No clinic acceptance walkthrough has been completed yet. Laboratory, radiology, HR, specialty canvases, and patient portal remain disabled until their persistence and access controls are complete.
 
 ### Supabase setup required before use
 
 1. Configure `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` in the deployment environment.
-2. For a new project, apply migrations in order: `20261122000001_initial_schema.sql`, `20261122000002_rls_policies.sql`, `20261122000003_functions_triggers.sql`, `20261122000004_seed_data.sql`, `20261123000001_specialties_and_rbac.sql`, `20261124000001_security_hardening.sql`, then `20261125000001_security_advisor_fixes.sql`. The configured project already has these migrations applied.
-3. Deploy `supabase/functions/invite-staff` and configure its `APP_ORIGIN` secret, then add the production app URL to Supabase Auth's redirect allow-list.
+2. For a new project, apply every migration in `supabase/migrations/` in timestamp order. The linked production project currently has all 12 applied.
+3. Deploy `supabase/functions/invite-staff` and `supabase/functions/platform-admin`. Configure the `APP_ORIGIN` secret and add the production app URL to Supabase Auth's redirect allow-list.
 4. Create the first platform administrator by registering its email through Supabase Auth, then promote that exact profile to `super_admin` from the trusted SQL editor with a service role. Never add a client-side bootstrap password or role picker.
 5. Configure email verification, password recovery, backups, and MFA policy in the Supabase project.
 
-The local build does not apply migrations or validate browser workflows. The linked Supabase project was updated; no patient rows were present when it was checked. The app has not yet been exercised end-to-end against a real account.
+The local build does not apply migrations or validate browser workflows. Database lint passed with two existing unused-variable warnings in invoice functions. The app has not yet been exercised end-to-end with a facility owner's account; create a clinic workspace with a reachable QA email and verify its owner invitation before using real clinical records.
 
 ---
 
@@ -207,7 +207,7 @@ npm run build
 
 ### 4. التحقق
 
-`npm run build` يفحص الأنواع ويُنتج الحزمة فقط؛ لا يثبت عزل قاعدة البيانات أو صحة الترحيلات. لا توجد حالياً مجموعة تحقق حية ضد Supabase، لذلك يلزم اختبار سياسات RLS ومسارات التسجيل والفوترة على مشروع منفصل قبل استقبال بيانات حقيقية.
+`npm run build` يفحص الأنواع ويُنتج الحزمة فقط؛ لا يثبت وحده عزل قاعدة البيانات أو صحة كل مسارات المستخدم. يجب إكمال تجربة قبول بحساب مالك منشأة وفريق اختبار على بيانات وهمية قبل استقبال بيانات حقيقية. يُنصح باستخدام مشروع Supabase منفصل للاختبارات الدورية.
 
 ---
 
@@ -222,6 +222,11 @@ npm run build
    - `20261123000001_specialties_and_rbac.sql`
    - `20261124000001_security_hardening.sql`
    - `20261125000001_security_advisor_fixes.sql`
+   - `20261125000002_insurance_module.sql`
+   - `20261125000003_inventory_pharmacy_module.sql`
+   - `20261127000001_inventory_manager_role.sql`
+   - `20261127000002_production_module_hardening.sql`
+   - `20261127000003_platform_admin_workflows.sql`
 3. انسخ الـ `Project URL` و الـ `anon public key` من إعدادات المشروع إلى ملف `.env`:
 ```env
 VITE_SUPABASE_URL=https://your-project.supabase.co

@@ -41,7 +41,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setUser(null); setOrganization(null); setActiveBranch(null); setAvailableBranches([]); setSubscription(null);
     if (!current || !supabase) return;
     const { data: profile, error: profileError } = await supabase.from('users').select('*').eq('id', current.user.id).maybeSingle();
-    if (profileError || !profile || (!profile.is_active && profile.organization_id)) return;
+    if (profileError || !profile || !profile.is_active) return;
     const typedUser = profile as User;
     setUser(typedUser);
     if (!typedUser.organization_id) return;
@@ -93,8 +93,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!supabase) return { success: false, error: 'اتصال قاعدة البيانات غير مهيأ.' };
     const { error } = await supabase.auth.updateUser({ password });
     if (error) return { success: false, error: error.message };
+    // A recovery link establishes a temporary authenticated session. End only
+    // this browser session so the user must explicitly sign in with the new password.
+    const { error: signOutError } = await supabase.auth.signOut({ scope: 'local' });
     setIsPasswordRecovery(false);
-    window.history.replaceState({}, document.title, `${window.location.pathname}${window.location.search}`);
+    setSession(null);
+    setUser(null);
+    setOrganization(null);
+    setActiveBranch(null);
+    setAvailableBranches([]);
+    setSubscription(null);
+    window.history.replaceState({}, document.title, window.location.pathname);
+    if (signOutError) {
+      return { success: false, error: 'تم تغيير كلمة المرور، لكن تعذر إنهاء الجلسة. سجّل الخروج ثم ادخل مجدداً.' };
+    }
     return { success: true };
   };
   const switchBranch = (id: string) => {
