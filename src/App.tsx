@@ -34,7 +34,7 @@ import { PatientPortal } from './pages/patient-portal/PatientPortal';
 import { OrganizationOnboarding } from './pages/OrganizationOnboarding';
 
 const AppContent: React.FC = () => {
-  const { user, session, isLoading, isPasswordRecovery, logout, isSuperAdmin, isPatient } = useAuth();
+  const { user, session, isLoading, isPasswordRecovery, logout, isSuperAdmin, isPatient, isFacilitySupportMode, organization, exitFacilitySupport } = useAuth();
   const { locale } = useLanguage();
   const [currentTab, setCurrentTab] = useState<string>('dashboard');
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
@@ -42,13 +42,14 @@ const AppContent: React.FC = () => {
   // Automatically adjust default landing tab when role changes
   useEffect(() => {
     if (isSuperAdmin) {
-      setCurrentTab('super_admin_dashboard');
+      if (isFacilitySupportMode && currentTab.startsWith('super_admin_')) setCurrentTab('dashboard');
+      else if (!isFacilitySupportMode && !currentTab.startsWith('super_admin_')) setCurrentTab('super_admin_dashboard');
     } else if (isPatient) {
       setCurrentTab('patient_portal');
     } else {
       setCurrentTab('dashboard');
     }
-  }, [user?.role, isSuperAdmin, isPatient]);
+  }, [user?.role, isSuperAdmin, isPatient, isFacilitySupportMode, currentTab]);
 
   if (isLoading) return <div className="grid min-h-screen place-items-center text-sm font-bold text-slate-600">{locale === 'ar' ? 'جار التحقق من جلسة الدخول...' : 'Checking sign-in session...'}</div>;
   if (isPasswordRecovery) return <AuthScreen defaultMode="updatePassword" />;
@@ -58,7 +59,7 @@ const AppContent: React.FC = () => {
 
   const renderActiveView = () => {
     // If super admin is active and current tab is not a platform tab, redirect immediately to super admin dashboard
-    if (isSuperAdmin && !currentTab.startsWith('super_admin_')) {
+    if (isSuperAdmin && !isFacilitySupportMode && !currentTab.startsWith('super_admin_')) {
       return <SuperAdminDashboard activeTab="super_admin_dashboard" onSelectTab={setCurrentTab} />;
     }
 
@@ -119,9 +120,15 @@ const AppContent: React.FC = () => {
     }
   };
 
+  const leaveFacilitySupport = async () => {
+    await exitFacilitySupport('user_exit');
+    setCurrentTab('super_admin_orgs');
+  };
+
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
       <Navbar onToggleMobileSidebar={() => setMobileSidebarOpen(!mobileSidebarOpen)} />
+      {isFacilitySupportMode && organization && <div role="alert" className="flex flex-wrap items-center justify-center gap-3 border-b border-amber-400 bg-amber-100 px-4 py-2.5 text-center text-xs font-bold text-amber-950"><span>{locale === 'ar' ? `دخول دعم للمنشأة: ${organization.name_ar} — تعمل بهوية السوبر أدمن، وكل التغييرات ستُسجل باسمك.` : `Facility support: ${organization.name_en} — you remain the platform super admin; all changes are attributed to your account.`}</span><button type="button" onClick={() => void leaveFacilitySupport()} className="rounded-lg border border-amber-700 px-3 py-1.5 font-black hover:bg-amber-200">{locale === 'ar' ? 'إنهاء دخول المنشأة' : 'Exit facility'}</button></div>}
       <div role="status" className="border-b border-amber-300 bg-amber-50 px-4 py-2 text-center text-xs font-semibold leading-5 text-amber-950">{locale === 'ar' ? 'حالة التشغيل: المنصة متصلة بقاعدة Supabase. المرضى والمواعيد والفريق والكشوفات والروشتات والفواتير والتأمين والمخزون تستخدم مسارات حفظ سحابية. المختبر والأشعة والموارد البشرية والتخصصات وبوابة المريض غير مفعلة حتى اكتمال الحفظ والصلاحيات؛ لا تسجل بيانات فيها.' : 'Live status: the platform is connected to Supabase. Patients, appointments, staff, consultations, prescriptions, billing, insurance, and inventory use cloud persistence. Lab, radiology, HR, specialties, and the patient portal remain disabled until their persistence and access controls are complete; do not enter data there.'}</div>
 
       <div className="flex flex-1">

@@ -4,7 +4,7 @@ import { useToast } from '../../context/ToastContext';
 import { useAuth } from '../../context/AuthContext';
 import { supabase } from '../../lib/supabase';
 import { AppRole, Organization, Subscription, User } from '../../types/database';
-import { Building2, Users, ShieldCheck, RefreshCw, Plus, Pencil, UserRoundX, UserRoundCheck, X } from 'lucide-react';
+import { Building2, Users, ShieldCheck, RefreshCw, Plus, Pencil, UserRoundX, UserRoundCheck, X, LogIn } from 'lucide-react';
 
 interface Props { activeTab: string; onSelectTab: (tab: string) => void }
 type OrganizationRow = Organization & { branches?: { id: string }[]; subscriptions?: Subscription[] };
@@ -38,7 +38,7 @@ const getAdminErrorMessage = async (error: unknown, fallback: string) => {
 
 export const SuperAdminDashboard: React.FC<Props> = ({ activeTab, onSelectTab }) => {
   const { locale, t } = useLanguage();
-  const { user: currentUser } = useAuth();
+  const { user: currentUser, enterFacilitySupport, isFacilitySupportMode } = useAuth();
   const { success, error } = useToast();
   const [organizations, setOrganizations] = useState<OrganizationRow[]>([]);
   const [users, setUsers] = useState<AdminUser[]>([]);
@@ -53,7 +53,9 @@ export const SuperAdminDashboard: React.FC<Props> = ({ activeTab, onSelectTab })
   const [confirmFacilityUpdate, setConfirmFacilityUpdate] = useState(false);
   const [facility, setFacility] = useState({ ...emptyFacility });
   const [manualInvitation, setManualInvitation] = useState<{ email: string; link: string } | null>(null);
+  const [supportCandidate, setSupportCandidate] = useState<OrganizationRow | null>(null);
   const [search, setSearch] = useState('');
+  const [startingSupport, setStartingSupport] = useState(false);
   const ar = locale === 'ar';
 
   const load = useCallback(async () => {
@@ -83,6 +85,20 @@ export const SuperAdminDashboard: React.FC<Props> = ({ activeTab, onSelectTab })
   const callPlatformAdmin = async (body: Record<string, unknown>) => {
     if (!supabase) return { data: null, error: new Error('Database connection is not configured.') };
     return supabase.functions.invoke('platform-admin', { body });
+  };
+
+  const startFacilitySupport = async () => {
+    if (!supportCandidate || isFacilitySupportMode) return;
+    setStartingSupport(true);
+    const result = await enterFacilitySupport(supportCandidate.id);
+    setStartingSupport(false);
+    if (!result.success) {
+      error(result.error || (ar ? 'تعذر فتح المنشأة.' : 'Could not open facility.'));
+      return;
+    }
+    success(ar ? 'بدأت جلسة دخول دعم مؤقتة للمنشأة.' : 'A temporary facility support session has started.');
+    setSupportCandidate(null);
+    onSelectTab('dashboard');
   };
 
   const saveUser = async (event: FormEvent) => {
@@ -212,7 +228,7 @@ export const SuperAdminDashboard: React.FC<Props> = ({ activeTab, onSelectTab })
 
     {activeTab === 'super_admin_orgs' ? <section className="overflow-hidden rounded-2xl border bg-white">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b p-4"><h2 className="font-black">{ar ? 'المنشآت المسجلة' : 'Registered facilities'}</h2><button onClick={() => { setShowFacilityForm(true); setConfirmFacilityCreate(false); }} className="inline-flex items-center gap-2 rounded-xl bg-medicore-600 px-3 py-2 text-xs font-bold text-white"><Plus className="h-4 w-4" />{ar ? 'إنشاء منشأة' : 'Create facility'}</button></div>
-      {loading ? <p className="p-8 text-sm text-slate-500">{ar ? 'جار تحميل البيانات...' : 'Loading...'}</p> : organizations.length === 0 ? <p className="p-8 text-sm text-slate-500">{ar ? 'لا توجد منشآت مسجلة.' : 'No facilities are registered.'}</p> : <div className="overflow-x-auto"><table className="w-full text-start text-xs"><thead className="bg-slate-50"><tr>{[ar ? 'المنشأة' : 'Facility', ar ? 'المدينة' : 'City', ar ? 'الحالة' : 'Status', ar ? 'الفروع' : 'Branches', ar ? 'تاريخ التسجيل' : 'Created', ar ? 'إجراء' : 'Action'].map(header => <th key={header} className="p-3 text-start">{header}</th>)}</tr></thead><tbody>{organizations.map(org => <tr key={org.id} className="border-t"><td className="p-3 font-bold">{ar ? org.name_ar : org.name_en}<div className="font-normal text-slate-500">{org.email}</div></td><td className="p-3">{org.city}</td><td className="p-3">{statusLabel(org.status)}</td><td className="p-3">{org.branches?.length || 0}</td><td className="p-3">{new Date(org.created_at).toLocaleDateString(ar ? 'ar-EG' : 'en-GB')}</td><td className="p-3"><button onClick={() => { setEditingFacility({ ...org }); setConfirmFacilityUpdate(false); }} className="inline-flex items-center gap-1 rounded-lg border px-3 py-2 font-bold"><Pencil className="h-3.5 w-3.5" />{ar ? 'تعديل' : 'Edit'}</button></td></tr>)}</tbody></table></div>}
+      {loading ? <p className="p-8 text-sm text-slate-500">{ar ? 'جار تحميل البيانات...' : 'Loading...'}</p> : organizations.length === 0 ? <p className="p-8 text-sm text-slate-500">{ar ? 'لا توجد منشآت مسجلة.' : 'No facilities are registered.'}</p> : <div className="overflow-x-auto"><table className="w-full text-start text-xs"><thead className="bg-slate-50"><tr>{[ar ? 'المنشأة' : 'Facility', ar ? 'المدينة' : 'City', ar ? 'الحالة' : 'Status', ar ? 'الفروع' : 'Branches', ar ? 'تاريخ التسجيل' : 'Created', ar ? 'إجراء' : 'Action'].map(header => <th key={header} className="p-3 text-start">{header}</th>)}</tr></thead><tbody>{organizations.map(org => { const testFacility = org.email.toLowerCase().split('@')[1] === 'example.test'; return <tr key={org.id} className="border-t"><td className="p-3 font-bold">{ar ? org.name_ar : org.name_en}<div className="font-normal text-slate-500">{org.email}</div></td><td className="p-3">{org.city}</td><td className="p-3">{statusLabel(org.status)}</td><td className="p-3">{org.branches?.length || 0}</td><td className="p-3">{new Date(org.created_at).toLocaleDateString(ar ? 'ar-EG' : 'en-GB')}</td><td className="p-3"><div className="flex flex-wrap gap-2"><button onClick={() => { setEditingFacility({ ...org }); setConfirmFacilityUpdate(false); }} className="inline-flex items-center gap-1 rounded-lg border px-3 py-2 font-bold"><Pencil className="h-3.5 w-3.5" />{ar ? 'تعديل' : 'Edit'}</button>{testFacility && <button onClick={() => setSupportCandidate(org)} className="inline-flex items-center gap-1 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 font-bold text-amber-900"><LogIn className="h-3.5 w-3.5" />{ar ? 'دخول المنشأة' : 'Enter facility'}</button>}</div></td></tr>; })}</tbody></table></div>}
     </section> : null}
 
     <p className="text-xs leading-6 text-slate-500">{ar ? 'تغيير الدور أو حالة الحساب يحتاج تأكيدًا صريحًا ويسجل في سجل التدقيق. الحسابات لا تُحذف نهائيًا حتى لا تُفقد ملكية السجلات.' : 'Role and account-status changes require explicit confirmation and are recorded in the audit log. Accounts are not permanently deleted to preserve record ownership.'}</p>
@@ -264,6 +280,7 @@ export const SuperAdminDashboard: React.FC<Props> = ({ activeTab, onSelectTab })
       </div>}
       <div className="flex justify-end gap-2 border-t pt-4"><button type="button" onClick={() => confirmFacilityUpdate ? setConfirmFacilityUpdate(false) : setEditingFacility(null)} className="rounded-xl border px-4 py-2 text-sm font-bold">{ar ? 'رجوع' : 'Back'}</button><button disabled={saving} className="rounded-xl bg-medicore-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-50">{saving ? '...' : confirmFacilityUpdate ? (ar ? 'تأكيد وحفظ' : 'Confirm and save') : (ar ? 'مراجعة التعديل' : 'Review changes')}</button></div>
     </form></div>}
+    {supportCandidate && <div className="fixed inset-0 z-[55] grid place-items-center bg-slate-950/60 p-4"><section role="dialog" aria-modal="true" aria-labelledby="facility-support-title" className="w-full max-w-lg space-y-4 rounded-2xl bg-white p-6 shadow-2xl"><div><h2 id="facility-support-title" className="text-lg font-black">{ar ? 'تأكيد دخول دعم المنشأة' : 'Confirm facility support access'}</h2><p className="mt-2 text-sm leading-6 text-slate-700">{ar ? `ستفتح مساحة «${supportCandidate.name_ar}» بحساب السوبر أدمن، وليس بانتحال مالكها. الجلسة متاحة 15 دقيقة للمنشآت التجريبية فقط، وكل ما تنفذه سيظهر باسم حساب المنصة في سجل التدقيق.` : `You will open “${supportCandidate.name_en}” as the platform super admin, not as its owner. The 15-minute workspace is limited to test facilities, and your actions will be attributed to your platform account in the audit log.`}</p><p className="rounded-xl bg-amber-50 p-3 text-xs leading-5 text-amber-950">{ar ? 'تأكيد الدخول يسمح بقراءة بيانات المنشأة وإضافة أو تعديل بيانات اختبار داخلها. لا تستخدمه على بيانات مرضى حقيقية.' : 'Confirming allows reading this facility and adding or editing test data. Do not use it with real patient data.'}</p></div><div className="flex justify-end gap-2"><button type="button" onClick={() => setSupportCandidate(null)} disabled={startingSupport} className="rounded-xl border px-4 py-2 text-sm font-bold">{ar ? 'إلغاء' : 'Cancel'}</button><button type="button" onClick={() => void startFacilitySupport()} disabled={startingSupport} className="rounded-xl bg-amber-700 px-4 py-2 text-sm font-bold text-white disabled:opacity-50">{startingSupport ? (ar ? 'جار الفتح...' : 'Opening...') : (ar ? 'تأكيد وفتح المنشأة' : 'Confirm and enter')}</button></div></section></div>}
     {manualInvitation && <div className="fixed inset-0 z-[60] grid place-items-center bg-slate-950/60 p-4"><section role="dialog" aria-modal="true" aria-labelledby="manual-invitation-title" className="w-full max-w-xl space-y-4 rounded-2xl bg-white p-6 shadow-2xl">
       <div><h2 id="manual-invitation-title" className="text-lg font-black">{ar ? 'رابط تفعيل مالك المنشأة' : 'Facility owner activation link'}</h2><p className="mt-2 text-sm leading-6 text-slate-600">{ar ? `تعذر إرسال البريد بسبب حد Supabase الحالي. انسخ الرابط وافتحه الآن لتفعيل الحساب: ${manualInvitation.email}. الرابط مؤقت وسري؛ لا تشاركه مع أي شخص آخر.` : `Supabase's current email limit blocked delivery. Open this temporary, private link now to activate ${manualInvitation.email}. Do not share it with anyone else.`}</p></div>
       <input aria-label={ar ? 'رابط التفعيل' : 'Activation link'} readOnly value={manualInvitation.link} onFocus={event => event.currentTarget.select()} className="w-full rounded-xl border bg-slate-50 p-3 text-xs" />

@@ -25,7 +25,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   mobileOpen,
   onCloseMobile,
 }) => {
-  const { user, isSuperAdmin, isPatient, subscription, can } = useAuth();
+  const { user, isSuperAdmin, isFacilitySupportMode, isPatient, subscription, can } = useAuth();
   const { locale, t } = useLanguage();
 
   const handleNavClick = (tabId: string) => {
@@ -36,7 +36,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   // Build navigation items based on role
   let navItems: { id: string; label: string; icon: React.ReactNode; badge?: string }[] = [];
 
-  if (isSuperAdmin) {
+  if (isSuperAdmin && !isFacilitySupportMode) {
     navItems = [
       { id: 'super_admin_dashboard', label: t.nav.superAdminDashboard, icon: <ShieldCheck className="w-4 h-4 text-purple-600" /> },
       { id: 'super_admin_orgs', label: t.nav.organizations, icon: <Building2 className="w-4 h-4 text-medicore-600" /> },
