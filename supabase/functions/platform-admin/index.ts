@@ -44,9 +44,13 @@ Deno.serve(async request => {
 
   const { data: actor, error: actorError } = await admin
     .from('users').select('id,role,is_active,email,name_en').eq('id', caller.id).maybeSingle();
-  if (actorError || !actor?.is_active || actor.role !== 'super_admin') {
-    return response({ error: 'Only an active platform super admin may perform this action.' }, 403);
+  if (actorError) {
+    console.error('Platform admin profile lookup failed:', actorError.code, actorError.message);
+    return response({ error: `Could not verify platform admin profile (${actorError.code || 'unknown'}).` }, 500);
   }
+  if (!actor) return response({ error: 'No platform user profile is linked to this sign-in.' }, 403);
+  if (!actor.is_active) return response({ error: 'This platform account is inactive.' }, 403);
+  if (actor.role !== 'super_admin') return response({ error: 'This account does not have the super admin role.' }, 403);
 
   try {
     const body = await request.json();
