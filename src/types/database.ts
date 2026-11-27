@@ -497,6 +497,22 @@ export interface LaboratoryResult {
   test?: LaboratoryTest;
 }
 
+export interface MedicalAttachment {
+  id: string;
+  organization_id: string;
+  patient_id: string;
+  consultation_id?: string | null;
+  laboratory_order_id?: string | null;
+  radiology_order_id?: string | null;
+  file_name: string;
+  file_type: string;
+  file_size_bytes: number;
+  storage_path: string;
+  description?: string | null;
+  uploaded_by?: string | null;
+  created_at: string;
+}
+
 export interface RadiologyOrder {
   id: string;
   organization_id: string;
