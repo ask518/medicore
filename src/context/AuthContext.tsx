@@ -87,8 +87,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const login: AuthContextType['login'] = async (email, password) => {
     if (!supabase) return { success: false, error: 'اتصال قاعدة البيانات غير مهيأ.' };
-    const { error } = await supabase.auth.signInWithPassword({ email: email.trim().toLowerCase(), password });
-    return error ? { success: false, error: 'البريد الإلكتروني أو كلمة المرور غير صحيحة.' } : { success: true };
+    const clean = email.trim().toLowerCase();
+    const normalizedEmail = clean.includes('@') ? clean : (/^[a-z0-9._-]{3,50}$/.test(clean) ? `${clean}@medicore.local` : clean);
+    const { error } = await supabase.auth.signInWithPassword({ email: normalizedEmail, password });
+    return error ? { success: false, error: 'بيانات الدخول غير صحيحة.' } : { success: true };
   };
   const register: AuthContextType['register'] = async (email, password, name_ar, name_en) => {
     if (!supabase) return { success: false, error: 'اتصال قاعدة البيانات غير مهيأ.' };
@@ -143,9 +145,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       supabase.from('subscriptions').select('*').eq('organization_id', organizationId).order('created_at', { ascending: false }).limit(1).maybeSingle(),
     ]);
     const org = orgResult.data as Organization | null;
-    if (orgResult.error || !org || org.status !== 'active' || org.email.toLowerCase().split('@')[1] !== 'example.test' || branchResult.error) {
+    if (orgResult.error || !org || org.status !== 'active' || branchResult.error) {
       await supabase.rpc('platform_end_support_session', { p_session_id: started.session_id, p_reason: 'setup_failed' });
-      return { success: false, error: 'تعذر تحميل منشأة اختبار نشطة. لم يتم فتح مساحة العمل.' };
+      return { success: false, error: 'تعذر تحميل المنشأة النشطة. لم يتم فتح مساحة العمل.' };
     }
 
     const branches = (branchResult.data || []) as Branch[];

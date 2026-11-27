@@ -12,14 +12,19 @@ import { AppointmentStatus, AppointmentType } from '../../types/database';
 import { 
   Calendar, Clock, User, Plus, CheckCircle, XCircle, 
   AlertTriangle, Filter, ChevronLeft, ChevronRight, Stethoscope,
-  Building2, Check
+  Building2, Check, Phone, MessageCircle
 } from 'lucide-react';
+import {
+  buildTemplateMessage, logAndOpenWhatsApp, logAndStartCall
+} from '../../lib/communications';
 
 interface PatientOption {
   id: string;
   mrn: string;
   first_name_ar: string;
   last_name_ar: string;
+  phone?: string;
+  whatsapp?: string;
 }
 
 interface DoctorOption {
@@ -54,7 +59,7 @@ const todayLocal = () => {
 };
 
 export const Appointments: React.FC = () => {
-  const { organization, activeBranch } = useAuth();
+  const { user, organization, activeBranch } = useAuth();
   const { locale, t } = useLanguage();
   const { success, error, warning } = useToast();
 
@@ -85,7 +90,7 @@ export const Appointments: React.FC = () => {
 
     try {
       const [patientRes, doctorRes] = await Promise.all([
-        supabase.from('patients').select('id, mrn, first_name_ar, last_name_ar').eq('organization_id', orgId).eq('is_active', true),
+        supabase.from('patients').select('id, mrn, first_name_ar, last_name_ar, phone, whatsapp').eq('organization_id', orgId).eq('is_active', true),
         supabase.from('doctors').select('id, specialty_title_ar, specialty_title_en, slot_duration_minutes, user:users(name_ar, name_en)').eq('organization_id', orgId).eq('is_active', true),
       ]);
 
@@ -94,7 +99,7 @@ export const Appointments: React.FC = () => {
 
       let query = supabase
         .from('appointments')
-        .select('id, appointment_number, appointment_date, start_time, end_time, status, type, reason_for_visit, patient_id, doctor_id, patient:patients(id, mrn, first_name_ar, last_name_ar), doctor:doctors(id, specialty_title_ar, specialty_title_en, user:users(name_ar, name_en))')
+        .select('id, appointment_number, appointment_date, start_time, end_time, status, type, reason_for_visit, patient_id, doctor_id, patient:patients(id, mrn, first_name_ar, last_name_ar, phone, whatsapp), doctor:doctors(id, specialty_title_ar, specialty_title_en, user:users(name_ar, name_en))')
         .eq('organization_id', orgId)
         .eq('appointment_date', selectedDate)
         .order('start_time', { ascending: true });
@@ -338,7 +343,53 @@ export const Appointments: React.FC = () => {
                   </div>
 
                   {/* Actions & Status */}
-                  <div className="flex items-center gap-2 self-end sm:self-auto">
+                  <div className="flex flex-wrap items-center gap-2 self-end sm:self-auto">
+                    {apt.patient?.phone && (
+                      <button
+                        type="button"
+                        onClick={() => void logAndStartCall({
+                          organizationId: orgId,
+                          branchId: activeBranch?.id,
+                          patientId: apt.patient_id,
+                          phone: apt.patient!.phone!,
+                          userId: user?.id,
+                        })}
+                        className="p-1.5 rounded-lg bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200"
+                        title={locale === 'ar' ? 'اتصال بالمريض' : 'Call Patient'}
+                      >
+                        <Phone className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                    {(apt.patient?.whatsapp || apt.patient?.phone) && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const msg = buildTemplateMessage('appointment_confirmation', {
+                            patientName: `${apt.patient?.first_name_ar || ''} ${apt.patient?.last_name_ar || ''}`.trim(),
+                            clinicName: organization[locale === 'ar' ? 'name_ar' : 'name_en'],
+                            date: apt.appointment_date,
+                            time: apt.start_time,
+                            doctorName: apt.doctor?.user?.name_ar || apt.doctor?.specialty_title_ar,
+                            locale,
+                          });
+                          void logAndOpenWhatsApp({
+                            organizationId: orgId,
+                            branchId: activeBranch?.id,
+                            patientId: apt.patient_id,
+                            phone: apt.patient!.whatsapp || apt.patient!.phone!,
+                            templateKey: 'appointment_confirmation',
+                            message: msg,
+                            userId: user?.id,
+                          }).then(res => {
+                            if (res.ok) success(locale === 'ar' ? 'تم تسجيل إشعار الواتساب وفتحه' : 'WhatsApp notification dispatched');
+                          });
+                        }}
+                        className="p-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200"
+                        title={locale === 'ar' ? 'إرسال تأكيد واتساب' : 'Send WhatsApp Confirmation'}
+                      >
+                        <MessageCircle className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                     <span className={`text-xs px-2.5 py-1 rounded-full ${statusStyles[apt.status] || 'bg-slate-100 text-slate-700'}`}>
                       {t.appointments[`status_${apt.status}`] || apt.status}
                     </span>

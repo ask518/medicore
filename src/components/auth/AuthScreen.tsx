@@ -194,16 +194,18 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
 
           {mode !== 'updatePassword' && <div>
             <label className="block text-xs font-bold text-slate-700 mb-1">
-              {locale === 'ar' ? 'البريد الإلكتروني الرسمي *' : 'Official Email *'}
+              {mode === 'login'
+                ? (locale === 'ar' ? 'البريد الإلكتروني أو اسم المستخدم *' : 'Email or Username *')
+                : (locale === 'ar' ? 'البريد الإلكتروني الرسمي *' : 'Official Email *')}
             </label>
             <div className="relative">
               <Mail className="w-4 h-4 text-slate-400 absolute start-3 top-1/2 -translate-y-1/2" />
               <input
-                type="email"
+                type={mode === 'login' ? 'text' : 'email'}
                 required
                 value={email}
                 onChange={e => setEmail(e.target.value)}
-                placeholder="name@clinic.com"
+                placeholder={mode === 'login' ? (locale === 'ar' ? 'name@clinic.com أو اسم المستخدم' : 'name@clinic.com or username') : 'name@clinic.com'}
                 className="w-full text-xs rounded-xl border border-slate-200 ps-9 pe-3 py-2.5 focus:border-medicore-500 focus:outline-none"
               />
             </div>

@@ -16,6 +16,17 @@ const roles = [
 ];
 const facilityTypes = ['private_clinic', 'poly_clinic', 'medical_center', 'specialized_center', 'complex', 'hospital'];
 const emailPattern = /^\S+@\S+\.\S+$/;
+const usernamePattern = /^[a-zA-Z0-9._-]{3,50}$/;
+
+const normalizeIdentifier = (raw: string): string => {
+  const clean = raw.trim().toLowerCase();
+  if (!clean) return '';
+  if (clean.includes('@')) return clean;
+  return usernamePattern.test(clean) ? `${clean}@medicore.local` : '';
+};
+
+const isStrongPassword = (pw: string): boolean =>
+  pw.length >= 12 && /[A-Za-z]/.test(pw) && /[0-9]/.test(pw);
 
 const response = (payload: Record<string, unknown>, status = 200) =>
   Response.json(payload, { status, headers: cors });
@@ -84,14 +95,128 @@ Deno.serve(async request => {
       return response({ success: true, organization_id: organizationId, main_branch_id: update[0].main_branch_id });
     }
 
+    if (action === 'create_user') {
+      const identifier = normalizeIdentifier(String(body.email || body.username || ''));
+      const password = String(body.password || '');
+      const nameAr = String(body.name_ar || '').trim();
+      const nameEn = String(body.name_en || nameAr).trim();
+      const phone = String(body.phone || '').trim();
+      const role = String(body.role || '');
+      const organizationId = body.organization_id ? String(body.organization_id) : null;
+      const branchId = body.branch_id ? String(body.branch_id) : null;
+
+      if (!emailPattern.test(identifier) || !nameAr || !roles.includes(role)) {
+        return response({ error: 'Enter a valid email or username, Arabic name, and role.' }, 400);
+      }
+      if (!isStrongPassword(password)) {
+        return response({ error: 'Password must be at least 12 characters with a letter and a number.' }, 400);
+      }
+      if (role !== 'super_admin' && !organizationId) {
+        return response({ error: 'Select a facility for non-platform roles.' }, 400);
+      }
+      if (organizationId && role === 'super_admin') {
+        return response({ error: 'Super admin cannot belong to a clinic organization.' }, 400);
+      }
+
+      const { data: existing } = await admin.from('users').select('id').eq('email', identifier).maybeSingle();
+      if (existing) {
+        return response({ error: 'This username/email already has an account.' }, 409);
+      }
+
+      let resolvedBranchId = branchId;
+      if (organizationId) {
+        const { data: branch } = await admin
+          .from('branches')
+          .select('id')
+          .eq('organization_id', organizationId)
+          .eq('is_active', true)
+          .order('is_main_branch', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (!resolvedBranchId) resolvedBranchId = branch?.id || null;
+        if (!resolvedBranchId) {
+          return response({ error: 'The selected facility has no active branch.' }, 400);
+        }
+      }
+
+      const { data: createdAuth, error: createAuthError } = await admin.auth.admin.createUser({
+        email: identifier,
+        password,
+        email_confirm: true,
+        user_metadata: { name_ar: nameAr, name_en: nameEn, phone },
+      });
+      if (createAuthError || !createdAuth?.user) {
+        return response({ error: createAuthError?.message || 'Could not create auth user.' }, 400);
+      }
+
+      const newUserId = createdAuth.user.id;
+      const { error: profileError } = await admin.from('users').upsert({
+        id: newUserId,
+        email: identifier,
+        name_ar: nameAr,
+        name_en: nameEn,
+        phone: phone || null,
+        organization_id: organizationId,
+        primary_branch_id: resolvedBranchId,
+        role,
+        is_active: true,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'id' });
+
+      if (profileError) {
+        await admin.auth.admin.deleteUser(newUserId);
+        return response({ error: `Profile creation failed: ${profileError.message}` }, 500);
+      }
+
+      if (organizationId && resolvedBranchId) {
+        await admin.from('user_branch_access').upsert(
+          { organization_id: organizationId, user_id: newUserId, branch_id: resolvedBranchId, is_default: true },
+          { onConflict: 'user_id,branch_id' }
+        );
+      }
+
+      if (organizationId && ['doctor', 'assistant_doctor'].includes(role)) {
+        const { error: docErr } = await admin.from('doctors').insert({
+          organization_id: organizationId,
+          user_id: newUserId,
+          specialty_code: String(body.specialty_code || 'general_medicine'),
+          specialty_title_ar: String(body.specialty_title_ar || 'طب عام'),
+          specialty_title_en: String(body.specialty_title_en || 'General Practice'),
+          consultation_fee: Number(body.consultation_fee || 0),
+          follow_up_fee: Number(body.follow_up_fee || 0),
+          commission_rate: Number(body.commission_rate || 0),
+          is_active: true,
+        });
+        if (docErr) {
+          console.error('Doctor profile insert notice:', docErr.message);
+        }
+      }
+
+      await admin.from('audit_logs').insert({
+        organization_id: organizationId,
+        user_id: actor.id,
+        user_name: actor.name_en || actor.email,
+        action: 'CREATE',
+        entity_type: 'users',
+        entity_id: newUserId,
+        new_values: { email: identifier, role, organization_id: organizationId, provisioning: 'direct_password' },
+      });
+
+      return response({ success: true, user_id: newUserId, email: identifier });
+    }
+
     if (action === 'update_user') {
       const targetId = String(body.user_id || '');
       const nameAr = String(body.name_ar || '').trim();
       const nameEn = String(body.name_en || nameAr).trim();
       const role = String(body.role || '');
       const isActive = body.is_active;
+      const newPassword = body.password ? String(body.password) : '';
       if (!targetId || !nameAr || nameAr.length > 255 || nameEn.length > 255 || !roles.includes(role) || typeof isActive !== 'boolean') {
         return response({ error: 'Invalid account details.' }, 400);
+      }
+      if (newPassword && !isStrongPassword(newPassword)) {
+        return response({ error: 'New password must be at least 12 characters with a letter and a number.' }, 400);
       }
       if (targetId === actor.id && (!isActive || role !== 'super_admin')) {
         return response({ error: 'You cannot deactivate or demote your own platform account.' }, 409);
@@ -131,10 +256,14 @@ Deno.serve(async request => {
       }).eq('id', targetId);
       if (profileError) return response({ error: `Could not save the account profile: ${profileError.message}` }, 500);
 
-      if (target.is_active !== isActive) {
-        const { error: authUpdateError } = await admin.auth.admin.updateUserById(targetId, {
-          ban_duration: isActive ? 'none' : '876000h',
-        });
+      if (target.is_active !== isActive || newPassword) {
+        const authPayload: Record<string, unknown> = {};
+        if (target.is_active !== isActive) authPayload.ban_duration = isActive ? 'none' : '876000h';
+        if (newPassword) {
+          authPayload.password = newPassword;
+          authPayload.email_confirm = true;
+        }
+        const { error: authUpdateError } = await admin.auth.admin.updateUserById(targetId, authPayload);
         if (authUpdateError) {
           await admin.from('users').update({
             name_ar: target.name_ar, name_en: target.name_en, is_active: target.is_active,
@@ -152,7 +281,7 @@ Deno.serve(async request => {
         entity_type: 'users',
         entity_id: targetId,
         old_values: { role: target.role, is_active: target.is_active, name_ar: target.name_ar, name_en: target.name_en },
-        new_values: { role, is_active: isActive, name_ar: nameAr, name_en: nameEn },
+        new_values: { role, is_active: isActive, name_ar: nameAr, name_en: nameEn, password_reset: Boolean(newPassword) },
         ip_address: request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || null,
         user_agent: request.headers.get('user-agent'),
       });
@@ -170,7 +299,8 @@ Deno.serve(async request => {
     }
 
     if (action === 'create_facility') {
-      const ownerEmail = String(body.owner_email || '').trim().toLowerCase();
+      const ownerEmail = normalizeIdentifier(String(body.owner_email || ''));
+      const ownerPassword = String(body.owner_password || '');
       const ownerNameAr = String(body.owner_name_ar || '').trim();
       const ownerNameEn = String(body.owner_name_en || ownerNameAr).trim();
       const nameAr = String(body.name_ar || '').trim();
@@ -182,41 +312,59 @@ Deno.serve(async request => {
       const facilityType = String(body.facility_type || 'private_clinic');
       if (!emailPattern.test(ownerEmail) || !ownerNameAr || !nameAr || !nameEn || !emailPattern.test(email)
           || !phone || !city || !address || !facilityTypes.includes(facilityType)) {
-        return response({ error: 'Complete all facility and owner fields with a valid email.' }, 400);
+        return response({ error: 'Complete all facility and owner fields with a valid email or username.' }, 400);
+      }
+      if (ownerPassword && !isStrongPassword(ownerPassword)) {
+        return response({ error: 'Owner password must be at least 12 characters with a letter and a number.' }, 400);
       }
       if (ownerEmail === actor.email?.toLowerCase()) return response({ error: 'Use a separate account for the facility owner.' }, 409);
       const { data: existing, error: existingError } = await admin.from('users').select('id').eq('email', ownerEmail).maybeSingle();
       if (existingError) return response({ error: 'Could not check the owner email.' }, 500);
-      if (existing) return response({ error: 'This email already has a MEDICORE account. Use an unregistered owner email.' }, 409);
+      if (existing) return response({ error: 'This email/username already has a MEDICORE account. Use an unregistered owner account.' }, 409);
 
       const ownerMetadata = { name_ar: ownerNameAr, name_en: ownerNameEn };
-      const redirectTo = `${appOrigin.replace(/\/$/, '')}/`;
-      const { data: invite, error: inviteError } = await admin.auth.admin.inviteUserByEmail(ownerEmail, {
-        data: ownerMetadata,
-        redirectTo,
-      });
-      let ownerUser = invite?.user || null;
+      let ownerUser: { id: string } | null = null;
       let manualInvitationLink: string | null = null;
-      const emailRateLimited = /email rate limit exceeded|over_email_send_rate_limit/i.test(inviteError?.message || '');
-      if (inviteError && emailRateLimited) {
-        // The built-in Supabase mailer is limited to two emails/hour. Keep the
-        // facility workflow available without weakening authentication: create
-        // an invitation link server-side and expose it only to this super admin.
-        const { data: generated, error: linkError } = await admin.auth.admin.generateLink({
-          type: 'invite',
+      let deliveryMode: 'direct_password' | 'manual_link' | 'email' = 'email';
+
+      if (ownerPassword) {
+        const { data: created, error: createError } = await admin.auth.admin.createUser({
           email: ownerEmail,
-          options: { data: ownerMetadata, redirectTo },
+          password: ownerPassword,
+          email_confirm: true,
+          user_metadata: ownerMetadata,
         });
-        if (!linkError && generated?.user && generated.properties?.action_link) {
-          ownerUser = generated.user;
-          manualInvitationLink = generated.properties.action_link;
-        } else {
-          return response({
-            error: `Supabase email is rate limited and a one-time invitation link could not be generated. ${linkError?.message || 'Retry after the mail limit resets or configure custom SMTP.'}`,
-          }, 429);
+        if (createError || !created?.user) {
+          return response({ error: createError?.message || 'Direct owner account creation failed.' }, 400);
         }
-      } else if (inviteError || !ownerUser) {
-        return response({ error: inviteError?.message || 'Owner invitation failed.' }, 400);
+        ownerUser = created.user;
+        deliveryMode = 'direct_password';
+      } else {
+        const redirectTo = `${appOrigin.replace(/\/$/, '')}/`;
+        const { data: invite, error: inviteError } = await admin.auth.admin.inviteUserByEmail(ownerEmail, {
+          data: ownerMetadata,
+          redirectTo,
+        });
+        ownerUser = invite?.user || null;
+        const emailRateLimited = /email rate limit exceeded|over_email_send_rate_limit/i.test(inviteError?.message || '');
+        if (inviteError && emailRateLimited) {
+          const { data: generated, error: linkError } = await admin.auth.admin.generateLink({
+            type: 'invite',
+            email: ownerEmail,
+            options: { data: ownerMetadata, redirectTo },
+          });
+          if (!linkError && generated?.user && generated.properties?.action_link) {
+            ownerUser = generated.user;
+            manualInvitationLink = generated.properties.action_link;
+            deliveryMode = 'manual_link';
+          } else {
+            return response({
+              error: `Supabase email is rate limited and a one-time invitation link could not be generated. ${linkError?.message || 'Supply a direct password instead.'}`,
+            }, 429);
+          }
+        } else if (inviteError || !ownerUser) {
+          return response({ error: inviteError?.message || 'Owner invitation failed.' }, 400);
+        }
       }
 
       const { data: provision, error: provisionError } = await admin.rpc('platform_provision_facility', {
@@ -236,19 +384,21 @@ Deno.serve(async request => {
       if (provisionError || !provision?.[0]) {
         await admin.from('users').update({ is_active: false }).eq('id', ownerUser.id);
         await admin.auth.admin.updateUserById(ownerUser.id, { ban_duration: '876000h' });
-        return response({ error: `The owner invitation was prepared, but facility setup failed. The account was disabled. ${provisionError?.message || 'Contact support before retrying.'}` }, 500);
+        return response({ error: `The owner account was prepared, but facility setup failed. The account was disabled. ${provisionError?.message || 'Contact support before retrying.'}` }, 500);
       }
       return response({
         success: true,
         organization_id: provision[0].organization_id,
         branch_id: provision[0].branch_id,
-        invitation_delivery: manualInvitationLink ? 'manual_link' : 'email',
+        owner_email: ownerEmail,
+        invitation_delivery: deliveryMode,
         ...(manualInvitationLink ? { invitation_link: manualInvitationLink } : {}),
       });
     }
 
     return response({ error: 'Unsupported platform administration action.' }, 400);
-  } catch {
-    return response({ error: 'Invalid platform administration request.' }, 400);
+  } catch (err) {
+    console.error('Platform admin request failed:', err);
+    return response({ error: 'Invalid request.' }, 400);
   }
 });
