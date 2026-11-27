@@ -384,18 +384,21 @@ export interface Consultation {
 export interface AnatomicalFinding {
   id: string;
   organization_id: string;
-  consultation_id?: string;
+  branch_id?: string | null;
+  consultation_id?: string | null;
   patient_id: string;
-  module_type: 'orthopedics' | 'dentistry' | 'dermatology' | 'ophthalmology';
+  module_type: string;
+  specialty_code?: string | null;
   canvas_view: string;
   anatomical_region_id: string;
   finding_type: string;
-  severity?: string;
-  coordinates_x?: number;
-  coordinates_y?: number;
-  annotation_text?: string;
+  severity?: string | null;
+  coordinates_x?: number | null;
+  coordinates_y?: number | null;
+  annotation_text?: string | null;
   marker_color: string;
   metadata?: Record<string, unknown>;
+  recorded_by?: string | null;
   created_at: string;
 }
 
