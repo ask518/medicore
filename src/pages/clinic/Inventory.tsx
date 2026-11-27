@@ -133,21 +133,20 @@ export const Inventory: React.FC = () => {
       return;
     }
     setSaving(true);
-    const { error: insertErr } = await supabase.from('inventory_items').insert({
-      organization_id: orgId,
-      branch_id: branchId,
-      sku: sku.trim().toUpperCase(),
-      name_ar: nameAr.trim(),
-      name_en: nameEn.trim() || nameAr.trim(),
-      category,
-      current_quantity: Math.max(0, parseInt(initQty, 10) || 0),
-      reorder_threshold: Math.max(0, parseInt(reorderThreshold, 10) || 10),
-      unit: unit.trim() || 'piece',
-      unit_cost: Number(unitCost) || 0,
-      selling_price: Number(sellingPrice) || 0,
-      batch_number: batchNumber.trim() || null,
-      expiry_date: expiryDate || null,
-      is_active: true,
+    const { error: insertErr } = await supabase.rpc('create_inventory_item', {
+      p_organization_id: orgId,
+      p_branch_id: branchId,
+      p_sku: sku.trim().toUpperCase(),
+      p_name_ar: nameAr.trim(),
+      p_name_en: nameEn.trim() || nameAr.trim(),
+      p_category: category,
+      p_initial_quantity: Math.max(0, parseInt(initQty, 10) || 0),
+      p_reorder_threshold: Math.max(0, parseInt(reorderThreshold, 10) || 10),
+      p_unit: unit.trim() || 'piece',
+      p_unit_cost: Number(unitCost) || 0,
+      p_selling_price: Number(sellingPrice) || 0,
+      p_batch_number: batchNumber.trim() || null,
+      p_expiry_date: expiryDate || null,
     });
     setSaving(false);
 
@@ -177,8 +176,8 @@ export const Inventory: React.FC = () => {
     e.preventDefault();
     if (!supabase || !movementTarget) return;
     const qty = parseInt(moveQty, 10);
-    if (!qty || qty <= 0) {
-      error(ar ? 'الكمية يجب أن تكون أكبر من صفر.' : 'Quantity must be positive.');
+    if (Number.isNaN(qty) || qty < 0 || (moveType !== 'adjustment' && qty === 0)) {
+      error(ar ? 'الكمية يجب أن تكون أكبر من صفر، ويسمح بالصفر في الجرد فقط.' : 'Quantity must be positive; zero is allowed for physical counts only.');
       return;
     }
 
@@ -720,7 +719,7 @@ export const Inventory: React.FC = () => {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">{moveType === 'adjustment' ? (ar ? 'الرصيد الفعلي الجديد *' : 'New Physical Count *') : (ar ? 'الكمية *' : 'Quantity *')}</label>
-                  <input type="number" min="1" required value={moveQty} onChange={e => setMoveQty(e.target.value)} className="w-full p-2.5 rounded-xl border border-slate-300 font-mono" />
+                  <input type="number" min={moveType === 'adjustment' ? '0' : '1'} required value={moveQty} onChange={e => setMoveQty(e.target.value)} className="w-full p-2.5 rounded-xl border border-slate-300 font-mono" />
                 </div>
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">{ar ? 'سعر الوحدة' : 'Unit Price'}</label>

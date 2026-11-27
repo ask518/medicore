@@ -7,7 +7,7 @@ import { AppRole, User } from '../../types/database';
 import { MASTER_MEDICAL_SPECIALTIES } from '../../config/medicalSpecialties';
 import { UserCog, Plus, Mail, Phone } from 'lucide-react';
 
-const ROLES: AppRole[] = ['general_manager','branch_manager','doctor','assistant_doctor','nurse','receptionist','accountant','lab_technician','radiology_technician','pharmacist','insurance_officer','records_officer'];
+const ROLES: AppRole[] = ['general_manager','branch_manager','doctor','assistant_doctor','nurse','receptionist','accountant','lab_technician','radiology_technician','pharmacist','insurance_officer','inventory_manager','records_officer'];
 
 export const Staff: React.FC = () => {
   const { organization, activeBranch, availableBranches, user } = useAuth();

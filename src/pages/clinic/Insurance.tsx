@@ -137,7 +137,8 @@ export const Insurance: React.FC = () => {
           .limit(100),
       ]);
 
-      if (compRes.error) throw compRes.error;
+      const loadError = compRes.error || contRes.error || claimRes.error || patRes.error || invRes.error;
+      if (loadError) throw loadError;
       setCompanies((compRes.data || []) as InsuranceCompany[]);
       setContracts((contRes.data || []) as unknown as InsuranceContract[]);
       setClaims((claimRes.data || []) as unknown as InsuranceClaim[]);
@@ -314,9 +315,30 @@ export const Insurance: React.FC = () => {
     if (!supabase || !reviewClaim) return;
 
     const approved = reviewStatus === 'rejected' ? 0 : (Number(reviewApprovedAmt) || 0);
-    const rejected = reviewStatus === 'approved' || reviewStatus === 'paid'
+    const rejected = reviewStatus === 'approved' || reviewStatus === 'partially_approved' || reviewStatus === 'paid'
       ? Math.max(0, reviewClaim.claimed_amount - approved)
       : (Number(reviewRejectedAmt) || 0);
+
+    if (approved < 0 || rejected < 0 || approved + rejected > reviewClaim.claimed_amount) {
+      error(ar ? 'مجموع المبلغ الموافق عليه والمرفوض لا يمكن أن يتجاوز قيمة المطالبة.' : 'Approved and rejected amounts cannot exceed the claimed amount.');
+      return;
+    }
+    if (reviewStatus === 'approved' && approved !== reviewClaim.claimed_amount) {
+      error(ar ? 'الموافقة الكاملة يجب أن تساوي قيمة المطالبة؛ استخدم الموافقة الجزئية عند الحاجة.' : 'A fully approved claim must equal the claimed amount; choose partial approval otherwise.');
+      return;
+    }
+    if (reviewStatus === 'partially_approved' && (approved <= 0 || approved >= reviewClaim.claimed_amount)) {
+      error(ar ? 'الموافقة الجزئية يجب أن تكون أكبر من صفر وأقل من قيمة المطالبة.' : 'Partial approval must be greater than zero and less than the claimed amount.');
+      return;
+    }
+    if (reviewStatus === 'rejected' && rejected !== reviewClaim.claimed_amount) {
+      error(ar ? 'المطالبة المرفوضة يجب تسجيل كامل قيمتها كمبلغ مرفوض.' : 'A rejected claim must record its full amount as rejected.');
+      return;
+    }
+    if (reviewStatus === 'paid' && approved <= 0) {
+      error(ar ? 'لا يمكن تسوية مطالبة بدون مبلغ موافق عليه.' : 'A claim cannot be settled without an approved amount.');
+      return;
+    }
 
     setSaving(true);
     const { error: updErr } = await supabase

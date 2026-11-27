@@ -59,12 +59,13 @@ AS $$
 DECLARE
   v_org_id UUID;
   v_item_org_id UUID;
+  v_item_branch_id UUID;
   v_current_qty INTEGER;
   v_new_qty INTEGER;
   v_movement_id UUID;
 BEGIN
-  IF p_quantity IS NULL OR p_quantity <= 0 THEN
-    RAISE EXCEPTION 'Quantity must be greater than zero';
+  IF p_quantity IS NULL OR p_quantity < 0 OR (p_movement_type <> 'adjustment' AND p_quantity = 0) THEN
+    RAISE EXCEPTION 'Quantity must be positive (zero is allowed only for physical-count adjustments)';
   END IF;
 
   IF p_movement_type NOT IN ('purchase', 'dispense', 'adjustment', 'transfer_in', 'transfer_out', 'damage') THEN
@@ -77,8 +78,8 @@ BEGIN
 
   v_org_id := public.current_user_organization_id();
 
-  SELECT organization_id, current_quantity
-  INTO v_item_org_id, v_current_qty
+  SELECT organization_id, branch_id, current_quantity
+  INTO v_item_org_id, v_item_branch_id, v_current_qty
   FROM public.inventory_items
   WHERE id = p_item_id
   FOR UPDATE;
@@ -89,6 +90,10 @@ BEGIN
 
   IF NOT public.is_platform_super_admin() AND v_item_org_id IS DISTINCT FROM v_org_id THEN
     RAISE EXCEPTION 'Cross-tenant inventory access denied';
+  END IF;
+
+  IF NOT public.is_platform_super_admin() AND NOT public.user_has_branch_access(v_item_branch_id) THEN
+    RAISE EXCEPTION 'No access to inventory item branch';
   END IF;
 
   IF p_movement_type IN ('purchase', 'transfer_in') THEN
