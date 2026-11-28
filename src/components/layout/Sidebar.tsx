@@ -42,6 +42,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
       { id: 'super_admin_orgs', label: t.nav.organizations, icon: <Building2 className="w-4 h-4 text-medicore-600" /> },
       { id: 'super_admin_users', label: t.nav.platformTeam, icon: <UserCog className="w-4 h-4 text-blue-600" /> },
       { id: 'super_admin_subscriptions', label: t.nav.subscriptions, icon: <CreditCard className="w-4 h-4 text-emerald-600" /> },
+      { id: 'super_admin_finance', label: locale === 'ar' ? 'المالية وإيرادات المنصة' : 'Platform Finance', icon: <DollarSign className="w-4 h-4 text-emerald-700" /> },
+      { id: 'super_admin_hr', label: locale === 'ar' ? 'الموارد البشرية للمنصة' : 'Platform HR & Payroll', icon: <Briefcase className="w-4 h-4 text-indigo-600" /> },
       { id: 'super_admin_analytics', label: t.nav.platformAnalytics, icon: <BarChart3 className="w-4 h-4 text-sky-600" /> },
       { id: 'super_admin_announcements', label: t.nav.systemAnnouncements, icon: <Megaphone className="w-4 h-4 text-amber-600" /> },
     ];
@@ -58,7 +60,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       { id: 'patients', label: t.nav.patients, icon: <Users className="w-4 h-4 text-sky-600" />, module: 'patients' },
       { id: 'appointments', label: t.nav.appointments, icon: <Calendar className="w-4 h-4 text-emerald-600" />, module: 'appointments' },
       { id: 'consultation', label: t.nav.consultations, icon: <Stethoscope className="w-4 h-4 text-indigo-600" />, module: 'consultations' },
-      { id: 'specialties', label: t.nav.specialties, icon: <Activity className="w-4 h-4 text-rose-600" />, badge: 'Interactive', module: 'consultations' },
+      { id: 'specialties', label: t.nav.specialties, icon: <Activity className="w-4 h-4 text-rose-600" />, badge: locale === 'ar' ? 'تفاعلي' : 'Interactive', module: 'consultations' },
       { id: 'prescriptions', label: t.nav.prescriptions, icon: <FileText className="w-4 h-4 text-teal-600" />, module: 'prescriptions' },
       { id: 'laboratory', label: t.nav.laboratory, icon: <FlaskConical className="w-4 h-4 text-violet-600" />, module: 'laboratory' },
       { id: 'radiology', label: t.nav.radiology, icon: <Radio className="w-4 h-4 text-fuchsia-600" />, module: 'radiology' },
@@ -89,7 +91,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       {/* Sidebar Container */}
       <aside
-        className={`fixed lg:sticky top-0 lg:top-16 start-0 z-40 h-full lg:h-[calc(100vh-4rem)] w-64 bg-white border-e border-slate-200 flex flex-col transition-transform duration-200 ease-in-out ${
+        className={`fixed lg:sticky top-0 lg:top-16 start-0 z-50 lg:z-30 h-full lg:h-[calc(100vh-4rem)] w-64 bg-white border-e border-slate-200 flex flex-col transition-transform duration-200 ease-in-out ${
           mobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0 rtl:translate-x-full rtl:lg:translate-x-0'
         }`}
       >
@@ -109,7 +111,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <div className="p-3.5 mx-3 my-2.5 rounded-xl bg-slate-50 border border-slate-100">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-full bg-medicore-100 text-medicore-700 font-black text-xs flex items-center justify-center shrink-0">
-              {user?.name_ar.slice(0, 2) || 'MD'}
+              {(user?.[locale === 'ar' ? 'name_ar' : 'name_en'] || user?.name_ar || 'MD').slice(0, 2)}
             </div>
             <div className="min-w-0">
               <p className="text-xs font-bold text-slate-800 truncate">
@@ -124,7 +126,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <div className="mt-2 pt-2 border-t border-slate-200/60 flex items-center justify-between text-[10px] text-slate-500">
               <span>{locale === 'ar' ? 'الباقة:' : 'Plan:'}</span>
               <span className="font-bold text-medicore-700 capitalize">
-                {subscription.plan?.name_ar || subscription.plan?.tier}
+                {(locale === 'ar' ? subscription.plan?.name_ar : subscription.plan?.name_en) || subscription.plan?.tier}
               </span>
             </div>
           )}

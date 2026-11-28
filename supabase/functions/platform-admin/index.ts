@@ -1,12 +1,29 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
-const appOrigin = Deno.env.get('APP_ORIGIN')?.replace(/\/+$/, '');
-const cors = {
-  'Access-Control-Allow-Origin': appOrigin || 'null',
+const configuredOrigins = (Deno.env.get('APP_ORIGIN') || '')
+  .split(',')
+  .map(o => o.trim().replace(/\/+$/, ''))
+  .filter(Boolean);
+
+const allowedOrigins = new Set<string>([
+  ...configuredOrigins,
+  'https://medicore-zeta-green.vercel.app',
+  'http://localhost:5180',
+  'http://127.0.0.1:5180',
+]);
+
+const resolveOrigin = (request: Request): string | null => {
+  const origin = request.headers.get('origin')?.replace(/\/+$/, '') || '';
+  if (!origin) return configuredOrigins[0] || 'https://medicore-zeta-green.vercel.app';
+  return allowedOrigins.has(origin) ? origin : null;
+};
+
+const buildCors = (origin: string) => ({
+  'Access-Control-Allow-Origin': origin,
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
   'Vary': 'Origin',
-};
+});
 
 const roles = [
   'super_admin', 'org_owner', 'general_manager', 'branch_manager', 'doctor',
@@ -28,12 +45,15 @@ const normalizeIdentifier = (raw: string): string => {
 const isStrongPassword = (pw: string): boolean =>
   pw.length >= 12 && /[A-Za-z]/.test(pw) && /[0-9]/.test(pw);
 
-const response = (payload: Record<string, unknown>, status = 200) =>
-  Response.json(payload, { status, headers: cors });
-
 Deno.serve(async request => {
-  if (!appOrigin) return response({ error: 'Platform administration endpoint is not configured.' }, 503);
-  if (request.headers.get('origin') !== appOrigin) return response({ error: 'Origin is not allowed.' }, 403);
+  const resolvedOrigin = resolveOrigin(request);
+  if (!resolvedOrigin) {
+    return Response.json({ error: 'Origin is not allowed.' }, { status: 403, headers: buildCors('null') });
+  }
+  const cors = buildCors(resolvedOrigin);
+  const response = (payload: Record<string, unknown>, status = 200) =>
+    Response.json(payload, { status, headers: cors });
+
   if (request.method === 'OPTIONS') return new Response('ok', { headers: cors });
   if (request.method !== 'POST') return response({ error: 'Method not allowed.' }, 405);
 
@@ -76,6 +96,9 @@ Deno.serve(async request => {
       const city = String(body.city || '').trim();
       const address = String(body.address || '').trim();
       const facilityType = String(body.facility_type || '');
+      const specialties = Array.isArray(body.specialties)
+        ? body.specialties.map((item: unknown) => String(item || '').trim()).filter(Boolean).slice(0, 40)
+        : null;
       if (!organizationId || !nameAr || !nameEn || !emailPattern.test(email) || !phone || !city || !address
           || !facilityTypes.includes(facilityType)) {
         return response({ error: 'Complete all facility details with a valid email.' }, 400);
@@ -90,6 +113,7 @@ Deno.serve(async request => {
         p_phone: phone,
         p_city: city,
         p_address: address,
+        ...(specialties && specialties.length > 0 ? { p_specialties: specialties } : {}),
       });
       if (updateError || !update?.[0]) return response({ error: updateError?.message || 'Facility update was not saved; no changes were committed.' }, 500);
       return response({ success: true, organization_id: organizationId, main_branch_id: update[0].main_branch_id });
@@ -310,6 +334,12 @@ Deno.serve(async request => {
       const city = String(body.city || '').trim();
       const address = String(body.address || '').trim();
       const facilityType = String(body.facility_type || 'private_clinic');
+      const specialties = Array.isArray(body.specialties)
+        ? body.specialties.map((item: unknown) => String(item || '').trim()).filter(Boolean).slice(0, 40)
+        : ['general_practice'];
+      const cleanSpecialties = specialties.length > 0 ? specialties : ['general_practice'];
+      const planId = body.plan_id ? String(body.plan_id).trim() : null;
+      const cycle = ['monthly', 'annual'].includes(String(body.cycle || '')) ? String(body.cycle) : 'monthly';
       if (!emailPattern.test(ownerEmail) || !ownerNameAr || !nameAr || !nameEn || !emailPattern.test(email)
           || !phone || !city || !address || !facilityTypes.includes(facilityType)) {
         return response({ error: 'Complete all facility and owner fields with a valid email or username.' }, 400);
@@ -340,7 +370,7 @@ Deno.serve(async request => {
         ownerUser = created.user;
         deliveryMode = 'direct_password';
       } else {
-        const redirectTo = `${appOrigin.replace(/\/$/, '')}/`;
+        const redirectTo = `${resolvedOrigin}/`;
         const { data: invite, error: inviteError } = await admin.auth.admin.inviteUserByEmail(ownerEmail, {
           data: ownerMetadata,
           redirectTo,
@@ -380,6 +410,9 @@ Deno.serve(async request => {
         p_city: city,
         p_address: address,
         p_facility_type: facilityType,
+        p_specialties: cleanSpecialties,
+        ...(planId ? { p_plan_id: planId } : {}),
+        p_cycle: cycle,
       });
       if (provisionError || !provision?.[0]) {
         await admin.from('users').update({ is_active: false }).eq('id', ownerUser.id);
@@ -394,6 +427,144 @@ Deno.serve(async request => {
         invitation_delivery: deliveryMode,
         ...(manualInvitationLink ? { invitation_link: manualInvitationLink } : {}),
       });
+    }
+
+    if (action === 'set_facility_status') {
+      const organizationId = String(body.organization_id || '');
+      const status = String(body.status || '');
+      if (!organizationId || !['pending_approval', 'active', 'suspended', 'archived'].includes(status)) {
+        return response({ error: 'Provide a valid organization and status.' }, 400);
+      }
+      const { data: updatedStatus, error: statusError } = await admin.rpc('platform_set_facility_status', {
+        p_actor_id: actor.id,
+        p_organization_id: organizationId,
+        p_status: status,
+      });
+      if (statusError) return response({ error: statusError.message || 'Could not update facility status.' }, 400);
+      return response({ success: true, organization_id: organizationId, status: updatedStatus });
+    }
+
+    if (action === 'update_subscription') {
+      const organizationId = String(body.organization_id || '');
+      const planId = String(body.plan_id || '');
+      const status = String(body.status || '');
+      const cycle = String(body.cycle || '');
+      const periodEnd = body.current_period_end ? String(body.current_period_end) : null;
+      if (!organizationId || !planId || !['trialing', 'active', 'past_due', 'canceled', 'expired', 'suspended'].includes(status)
+          || !['monthly', 'annual', 'lifetime', 'trial'].includes(cycle)) {
+        return response({ error: 'Provide a valid facility, plan, status, and billing cycle.' }, 400);
+      }
+      const { data: subId, error: subError } = await admin.rpc('platform_update_subscription', {
+        p_actor_id: actor.id,
+        p_organization_id: organizationId,
+        p_plan_id: planId,
+        p_status: status,
+        p_cycle: cycle,
+        p_period_end: periodEnd,
+      });
+      if (subError) return response({ error: subError.message || 'Could not update subscription.' }, 400);
+      return response({ success: true, subscription_id: subId });
+    }
+
+    if (action === 'delete_facility') {
+      const organizationId = String(body.organization_id || '');
+      if (!organizationId || body.confirm !== true) {
+        return response({ error: 'Explicit confirmation is required to delete a facility.' }, 400);
+      }
+
+      const removeStorageFolder = async (prefix: string) => {
+        const { data: items } = await admin.storage.from('medical-attachments').list(prefix, { limit: 1000 });
+        if (!items || items.length === 0) return;
+        const filePaths: string[] = [];
+        for (const item of items) {
+          const fullPath = `${prefix}/${item.name}`;
+          if (item.id === null) {
+            await removeStorageFolder(fullPath);
+          } else {
+            filePaths.push(fullPath);
+          }
+        }
+        if (filePaths.length > 0) {
+          await admin.storage.from('medical-attachments').remove(filePaths);
+        }
+      };
+
+      try {
+        await removeStorageFolder(organizationId);
+      } catch (storageErr) {
+        console.error('Storage cleanup notice during delete_facility:', storageErr);
+      }
+
+      const { data: delRows, error: delError } = await admin.rpc('platform_delete_facility', {
+        p_actor_id: actor.id,
+        p_organization_id: organizationId,
+      });
+      if (delError || !delRows?.[0]) {
+        return response({ error: delError?.message || 'Facility deletion failed.' }, 500);
+      }
+
+      const deletedUserIds: string[] = Array.isArray(delRows[0].deleted_user_ids) ? delRows[0].deleted_user_ids : [];
+      const failedAuthDeletions: string[] = [];
+      for (const uid of deletedUserIds) {
+        const { error: authDelError } = await admin.auth.admin.deleteUser(uid);
+        if (authDelError) failedAuthDeletions.push(uid);
+      }
+
+      return response({
+        success: true,
+        deleted_org_id: delRows[0].deleted_org_id,
+        deleted_users_count: deletedUserIds.length,
+        failed_auth_deletions: failedAuthDeletions,
+      });
+    }
+
+    if (action === 'save_plan') {
+      const planId = body.plan_id ? String(body.plan_id) : null;
+      const slug = String(body.slug || '').trim().toLowerCase();
+      const nameAr = String(body.name_ar || '').trim();
+      const nameEn = String(body.name_en || '').trim();
+      const tier = String(body.tier || 'starter');
+      if (!nameAr || !nameEn || !['starter', 'professional', 'medical_center', 'enterprise'].includes(tier)) {
+        return response({ error: 'Enter valid Arabic and English names and plan tier.' }, 400);
+      }
+      const { data: savedPlanId, error: planError } = await admin.rpc('platform_save_subscription_plan', {
+        p_actor_id: actor.id,
+        p_plan_id: planId,
+        p_slug: slug || nameEn,
+        p_name_ar: nameAr,
+        p_name_en: nameEn,
+        p_tier: tier,
+        p_price_monthly: Number(body.price_monthly ?? 0),
+        p_price_annual: Number(body.price_annual ?? 0),
+        p_currency: String(body.currency || 'EGP'),
+        p_max_branches: Math.max(0, parseInt(String(body.max_branches ?? 1), 10) || 0),
+        p_max_doctors: Math.max(0, parseInt(String(body.max_doctors ?? 3), 10) || 0),
+        p_max_users: Math.max(0, parseInt(String(body.max_users ?? 10), 10) || 0),
+        p_max_patients: Math.max(0, parseInt(String(body.max_patients ?? 500), 10) || 0),
+        p_max_storage_mb: Math.max(100, parseInt(String(body.max_storage_mb ?? 2048), 10) || 2048),
+        p_has_laboratory: Boolean(body.has_laboratory),
+        p_has_radiology: Boolean(body.has_radiology),
+        p_has_inventory: Boolean(body.has_inventory),
+        p_has_insurance: Boolean(body.has_insurance),
+        p_has_specialty_canvas: Boolean(body.has_specialty_canvas),
+        p_has_accounting_ledger: Boolean(body.has_accounting_ledger),
+        p_has_patient_portal: Boolean(body.has_patient_portal),
+        p_has_dedicated_db: Boolean(body.has_dedicated_db),
+        p_is_active: body.is_active !== false,
+      });
+      if (planError) return response({ error: planError.message || 'Could not save subscription plan.' }, 400);
+      return response({ success: true, plan_id: savedPlanId });
+    }
+
+    if (action === 'delete_plan') {
+      const planId = String(body.plan_id || '');
+      if (!planId) return response({ error: 'Select a subscription plan.' }, 400);
+      const { error: delPlanErr } = await admin.rpc('platform_delete_subscription_plan', {
+        p_actor_id: actor.id,
+        p_plan_id: planId,
+      });
+      if (delPlanErr) return response({ error: delPlanErr.message || 'Could not delete subscription plan.' }, 400);
+      return response({ success: true, plan_id: planId });
     }
 
     return response({ error: 'Unsupported platform administration action.' }, 400);

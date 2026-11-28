@@ -8,6 +8,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { useToast } from '../../context/ToastContext';
 import { supabase } from '../../lib/supabase';
+import { getClinicalStatusLabel } from '../../lib/facilityLabels';
 import { createAttachmentSignedUrl, uploadMedicalAttachment } from '../../lib/attachments';
 import {
   Doctor,
@@ -506,7 +507,7 @@ export const Radiology: React.FC = () => {
                             : 'bg-amber-100 text-amber-800'
                         }`}
                       >
-                        {order.status}
+                        {getClinicalStatusLabel(order.status, ar)}
                       </span>
                     </div>
                     <p className="mt-1.5 font-bold text-slate-900">{pName}</p>

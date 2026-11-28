@@ -5,18 +5,13 @@ import { useToast } from '../../context/ToastContext';
 import { supabase } from '../../lib/supabase';
 import { AppRole, User } from '../../types/database';
 import { MASTER_MEDICAL_SPECIALTIES } from '../../config/medicalSpecialties';
+import { generateStrongPassword } from '../../lib/passwords';
+import { extractFunctionErrorMessage } from '../../lib/errors';
+import { formatQuotaErrorMessage } from '../../lib/facilityLabels';
+import { PlanQuotaNotice } from '../../components/common/PlanQuotaNotice';
 import { UserCog, Plus, Mail, Phone, KeyRound, Eye, EyeOff } from 'lucide-react';
 
 const ROLES: AppRole[] = ['general_manager', 'branch_manager', 'doctor', 'assistant_doctor', 'nurse', 'receptionist', 'accountant', 'lab_technician', 'radiology_technician', 'pharmacist', 'insurance_officer', 'inventory_manager', 'records_officer'];
-
-const generateStrongPassword = () => {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$';
-  let out = 'Mc9!';
-  for (let i = 0; i < 10; i++) {
-    out += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return out;
-};
 
 export const Staff: React.FC = () => {
   const { organization, activeBranch, availableBranches } = useAuth();
@@ -82,7 +77,8 @@ export const Staff: React.FC = () => {
     });
     setSaving(false);
     if (inviteError || data?.error) {
-      error(data?.error || inviteError?.message || (ar ? 'تعذر إنشاء الحساب.' : 'Staff provisioning failed.'));
+      const raw = data?.error || await extractFunctionErrorMessage(inviteError, ar ? 'تعذر إنشاء الحساب.' : 'Staff provisioning failed.');
+      error(formatQuotaErrorMessage(raw, ar) || raw);
       return;
     }
 
@@ -114,6 +110,9 @@ export const Staff: React.FC = () => {
           <Plus className="h-4 w-4" />{ar ? 'إضافة موظف / طبيب' : 'Add staff'}
         </button>
       </header>
+
+      <PlanQuotaNotice orgId={orgId} ar={ar} scope="doctors" />
+      <PlanQuotaNotice orgId={orgId} ar={ar} scope="users" />
 
       <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
         <div className="border-b p-4 text-sm font-bold text-slate-600">{staff.length} {ar ? 'موظف' : 'staff members'}</div>

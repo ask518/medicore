@@ -8,6 +8,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { useToast } from '../../context/ToastContext';
 import { supabase } from '../../lib/supabase';
+import { formatSpecialtyFindingTypeLabel } from '../../lib/facilityLabels';
 import {
   ClinicalModuleType,
   MASTER_MEDICAL_SPECIALTIES,
@@ -656,6 +657,29 @@ export const Specialties: React.FC = () => {
         </div>
       </div>
 
+      {/* Quick Facility Specialty Strip */}
+      {availableSpecialties.length > 1 && (
+        <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200 bg-white p-3">
+          {availableSpecialties.map(s => {
+            const active = selectedSpecialtyCode === s.code;
+            return (
+              <button
+                key={s.code}
+                type="button"
+                onClick={() => setSelectedSpecialtyCode(s.code)}
+                className={`rounded-xl px-3 py-1.5 text-xs font-bold transition ${
+                  active
+                    ? 'bg-teal-600 text-white shadow-xs'
+                    : 'border border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'
+                }`}
+              >
+                {ar ? s.name_ar : s.name_en}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       {/* Patient, Consultation & Specialty Context Bar */}
       <div className="grid grid-cols-1 gap-4 rounded-2xl border border-slate-200 bg-white p-4 md:grid-cols-3">
         <div>
@@ -775,7 +799,7 @@ export const Specialties: React.FC = () => {
                         }`}
                       >
                         <div className="flex items-center justify-between gap-1">
-                          <span className="font-bold text-slate-800">{row.finding_type}</span>
+                          <span className="font-bold text-slate-800">{formatSpecialtyFindingTypeLabel(row.finding_type, ar)}</span>
                           <span className="text-[10px] text-slate-400">
                             {new Date(row.created_at).toLocaleDateString(ar ? 'ar-EG' : 'en-US')}
                           </span>

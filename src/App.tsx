@@ -39,14 +39,14 @@ const AppContent: React.FC = () => {
   const [currentTab, setCurrentTab] = useState<string>('dashboard');
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
-  // Automatically adjust default landing tab when role changes
+  // Automatically adjust default landing tab only when currentTab belongs to a different persona
   useEffect(() => {
     if (isSuperAdmin) {
       if (isFacilitySupportMode && currentTab.startsWith('super_admin_')) setCurrentTab('dashboard');
       else if (!isFacilitySupportMode && !currentTab.startsWith('super_admin_')) setCurrentTab('super_admin_dashboard');
     } else if (isPatient) {
-      setCurrentTab('patient_portal');
-    } else {
+      if (!currentTab.startsWith('patient_')) setCurrentTab('patient_portal');
+    } else if (currentTab.startsWith('super_admin_') || currentTab.startsWith('patient_')) {
       setCurrentTab('dashboard');
     }
   }, [user?.role, isSuperAdmin, isPatient, isFacilitySupportMode, currentTab]);
@@ -69,6 +69,8 @@ const AppContent: React.FC = () => {
       case 'super_admin_orgs':
       case 'super_admin_users':
       case 'super_admin_subscriptions':
+      case 'super_admin_finance':
+      case 'super_admin_hr':
       case 'super_admin_analytics':
       case 'super_admin_announcements':
         return <SuperAdminDashboard activeTab={currentTab} onSelectTab={setCurrentTab} />;

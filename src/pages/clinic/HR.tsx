@@ -8,6 +8,12 @@ import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { useToast } from '../../context/ToastContext';
 import { supabase } from '../../lib/supabase';
+import {
+  getClinicalStatusLabel,
+  getHrExpenseCategoryLabel,
+  getHrLeaveTypeLabel,
+  getStaffRoleLabel,
+} from '../../lib/facilityLabels';
 import { LeaveType } from '../../types/database';
 import {
   Briefcase,
@@ -181,15 +187,20 @@ export const HR: React.FC = () => {
         .order('created_at', { ascending: false });
       if (branchId) payrollQuery = payrollQuery.eq('branch_id', branchId);
 
-      let expenseQuery = supabase
-        .from('expenses')
-        .select('*')
-        .eq('organization_id', orgId)
-        .order('expense_date', { ascending: false })
-        .limit(100);
-      if (branchId) expenseQuery = expenseQuery.eq('branch_id', branchId);
+      const expenseQuery = canManagePayroll
+        ? (() => {
+            let q = supabase
+              .from('expenses')
+              .select('*')
+              .eq('organization_id', orgId)
+              .order('expense_date', { ascending: false })
+              .limit(100);
+            if (branchId) q = q.eq('branch_id', branchId);
+            return q;
+          })()
+        : Promise.resolve({ data: [], error: null });
 
-      const cashboxQuery = branchId
+      const cashboxQuery = canManagePayroll && branchId
         ? supabase.from('cashboxes').select('id,name,current_balance').eq('organization_id', orgId).eq('branch_id', branchId).eq('is_active', true)
         : Promise.resolve({ data: [], error: null });
 
@@ -498,7 +509,7 @@ export const HR: React.FC = () => {
       </div>
 
       {/* KPI Strip */}
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+      <div className={`grid grid-cols-2 gap-4 ${canManagePayroll ? 'md:grid-cols-4' : 'md:grid-cols-3'}`}>
         <div className="rounded-2xl border border-slate-200 bg-white p-4">
           <p className="text-xs font-semibold text-slate-500">{ar ? 'إجمالي رواتب الشهر' : 'Monthly Payroll Total'}</p>
           <p className="mt-1 text-xl font-black text-slate-900">
@@ -515,12 +526,14 @@ export const HR: React.FC = () => {
           <p className="text-xs font-semibold text-amber-800">{ar ? 'طلبات إجازة معلقة' : 'Pending Leaves'}</p>
           <p className="mt-1 text-xl font-black text-amber-900">{stats.pendingLeaves}</p>
         </div>
-        <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4">
-          <p className="text-xs font-semibold text-rose-800">{ar ? 'إجمالي المصروفات' : 'Recorded Expenses'}</p>
-          <p className="mt-1 text-xl font-black text-rose-900">
-            {stats.totalExpenses.toLocaleString()} {currency}
-          </p>
-        </div>
+        {canManagePayroll && (
+          <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4">
+            <p className="text-xs font-semibold text-rose-800">{ar ? 'إجمالي المصروفات' : 'Recorded Expenses'}</p>
+            <p className="mt-1 text-xl font-black text-rose-900">
+              {stats.totalExpenses.toLocaleString()} {currency}
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Tabs */}
@@ -633,7 +646,7 @@ export const HR: React.FC = () => {
                                 : 'bg-amber-100 text-amber-800'
                             }`}
                           >
-                            {slip.payment_status}
+                            {getClinicalStatusLabel(slip.payment_status, ar)}
                           </span>
                         </td>
                         <td className="p-3.5 text-end">
@@ -659,7 +672,7 @@ export const HR: React.FC = () => {
                           )}
                           {slip.payment_status === 'paid' && (
                             <span className="text-[11px] text-slate-500">
-                              {slip.payment_date || ''} ({slip.payment_method || ''})
+                              {slip.payment_date || ''} ({slip.payment_method ? getClinicalStatusLabel(slip.payment_method, ar) : ''})
                             </span>
                           )}
                         </td>
@@ -716,7 +729,7 @@ export const HR: React.FC = () => {
                         <td className="p-3.5 font-bold text-slate-900">
                           {emp ? (ar ? emp.name_ar : emp.name_en) : lv.user_id === user?.id ? (ar ? user?.name_ar : user?.name_en) : lv.user_id.slice(0, 8)}
                         </td>
-                        <td className="p-3.5">{lv.leave_type}</td>
+                        <td className="p-3.5">{getHrLeaveTypeLabel(lv.leave_type, ar)}</td>
                         <td className="p-3.5 font-mono">
                           {lv.start_date} → {lv.end_date}
                         </td>
@@ -732,7 +745,7 @@ export const HR: React.FC = () => {
                                 : 'bg-amber-100 text-amber-800'
                             }`}
                           >
-                            {lv.status}
+                            {getClinicalStatusLabel(lv.status, ar)}
                           </span>
                         </td>
                         {canDecideLeave && (
@@ -811,7 +824,7 @@ export const HR: React.FC = () => {
                   expenses.map((exp) => (
                     <tr key={exp.id}>
                       <td className="p-3.5 font-mono">{exp.expense_date}</td>
-                      <td className="p-3.5 font-bold text-purple-700">{exp.category}</td>
+                      <td className="p-3.5 font-bold text-purple-700">{getHrExpenseCategoryLabel(exp.category, ar)}</td>
                       <td className="p-3.5 font-bold text-slate-900">{exp.title}</td>
                       <td className="p-3.5 text-slate-600">{exp.vendor_name || '—'}</td>
                       <td className="p-3.5 font-black text-rose-700">
@@ -893,7 +906,7 @@ export const HR: React.FC = () => {
                 >
                   {staff.map((s) => (
                     <option key={s.id} value={s.id}>
-                      {ar ? s.name_ar : s.name_en} ({s.role})
+                      {ar ? s.name_ar : s.name_en} ({getStaffRoleLabel(s.role, ar)})
                     </option>
                   ))}
                 </select>
@@ -1020,7 +1033,7 @@ export const HR: React.FC = () => {
                 >
                   {LEAVE_TYPES.map((lt) => (
                     <option key={lt} value={lt}>
-                      {lt}
+                      {getHrLeaveTypeLabel(lt, ar)}
                     </option>
                   ))}
                 </select>
@@ -1069,7 +1082,7 @@ export const HR: React.FC = () => {
                   <select value={expCategory} onChange={(e) => setExpCategory(e.target.value)} className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm">
                     {EXPENSE_CATEGORIES.map((c) => (
                       <option key={c} value={c}>
-                        {c}
+                        {getHrExpenseCategoryLabel(c, ar)}
                       </option>
                     ))}
                   </select>

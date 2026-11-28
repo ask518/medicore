@@ -22,7 +22,7 @@ export const Consultation: React.FC = () => {
   const [prescriptionConsultationId, setPrescriptionConsultationId] = useState(''); const [prescriptionSaving, setPrescriptionSaving] = useState(false); const [prescriptionNotes, setPrescriptionNotes] = useState('');
   const [prescriptionItems, setPrescriptionItems] = useState<PrescriptionItemDraft[]>([{ drug_name: '', dosage: '', frequency: '', duration: '', quantity: '', instructions: '' }]);
   const ar = locale === 'ar'; const orgId = organization?.id || '';
-  const isAuthorized = ['org_owner','general_manager','doctor','assistant_doctor'].includes(user?.role || '');
+  const isAuthorized = ['super_admin','org_owner','general_manager','doctor','assistant_doctor'].includes(user?.role || '');
 
   const loadData = useCallback(async () => {
     if (!supabase || !orgId) { setLoading(false); return; }

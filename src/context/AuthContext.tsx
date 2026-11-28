@@ -17,6 +17,7 @@ interface AuthContextType {
   register: (email: string, password: string, name_ar: string, name_en?: string) => Promise<{ success: boolean; error?: string }>;
   resetPassword: (email: string) => Promise<{ success: boolean; error?: string }>;
   updatePassword: (password: string) => Promise<{ success: boolean; error?: string }>;
+  changePassword: (currentPassword: string, newPassword: string) => Promise<{ success: boolean; error?: string }>;
   switchBranch: (branchId: string) => void;
   refreshIdentity: () => Promise<void>;
   enterFacilitySupport: (organizationId: string) => Promise<{ success: boolean; error?: string }>;
@@ -42,6 +43,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [supportSession, setSupportSession] = useState<{ id: string; expiresAt: string } | null>(null);
   const branchIdRef = useRef('');
   const supportSessionRef = useRef<typeof supportSession>(null);
+  const supportOrgIdRef = useRef('');
   useEffect(() => { supportSessionRef.current = supportSession; }, [supportSession]);
 
   const loadIdentity = useCallback(async (current: Session | null) => {
@@ -58,7 +60,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const [orgResult, branchesResult, subResult] = await Promise.all([
       supabase.from('organizations').select('*').eq('id', typedUser.organization_id).maybeSingle(),
       supabase.from('branches').select('*').eq('organization_id', typedUser.organization_id).eq('is_active', true),
-      supabase.from('subscriptions').select('*').eq('organization_id', typedUser.organization_id).order('created_at', { ascending: false }).limit(1).maybeSingle(),
+      supabase.from('subscriptions').select('*, plan:subscription_plans(*)').eq('organization_id', typedUser.organization_id).order('created_at', { ascending: false }).limit(1).maybeSingle(),
     ]);
     if (orgResult.data) setOrganization(orgResult.data as Organization);
     const branches = (branchesResult.data || []) as Branch[];
@@ -126,8 +128,46 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
     return { success: true };
   };
+  const changePassword: AuthContextType['changePassword'] = async (currentPassword, newPassword) => {
+    if (!supabase || !session?.user?.email) {
+      return { success: false, error: 'الجلسة غير نشطة.' };
+    }
+    if (!currentPassword) {
+      return { success: false, error: 'أدخل كلمة المرور الحالية.' };
+    }
+    if (newPassword.length < 12 || !/[A-Za-z]/.test(newPassword) || !/[0-9]/.test(newPassword)) {
+      return { success: false, error: 'كلمة المرور الجديدة يجب أن تكون 12 خانة على الأقل مع حرف لاتيني ورقم.' };
+    }
+    const { error: verifyErr } = await supabase.auth.signInWithPassword({
+      email: session.user.email,
+      password: currentPassword,
+    });
+    if (verifyErr) {
+      return { success: false, error: 'كلمة المرور الحالية غير صحيحة.' };
+    }
+    const { error: updateErr } = await supabase.auth.updateUser({ password: newPassword });
+    if (updateErr) {
+      return { success: false, error: updateErr.message };
+    }
+    return { success: true };
+  };
   const refreshIdentity = useCallback(async () => {
     if (!supabase) return;
+    const activeSupport = supportSessionRef.current;
+    const activeSupportOrgId = supportOrgIdRef.current;
+    if (activeSupport && activeSupportOrgId) {
+      const [orgResult, branchResult, subscriptionResult] = await Promise.all([
+        supabase.from('organizations').select('*').eq('id', activeSupportOrgId).maybeSingle(),
+        supabase.from('branches').select('*').eq('organization_id', activeSupportOrgId).eq('is_active', true).order('is_main_branch', { ascending: false }),
+        supabase.from('subscriptions').select('*, plan:subscription_plans(*)').eq('organization_id', activeSupportOrgId).order('created_at', { ascending: false }).limit(1).maybeSingle(),
+      ]);
+      if (orgResult.data) setOrganization(orgResult.data as Organization);
+      const branches = (branchResult.data || []) as Branch[];
+      setAvailableBranches(branches);
+      setActiveBranch(branches.find(b => b.id === branchIdRef.current) || branches[0] || null);
+      if (subscriptionResult.data) setSubscription(subscriptionResult.data as Subscription);
+      return;
+    }
     const { data } = await supabase.auth.getSession();
     await loadIdentity(data.session);
   }, [loadIdentity]);
@@ -150,7 +190,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const [orgResult, branchResult, subscriptionResult] = await Promise.all([
       supabase.from('organizations').select('*').eq('id', organizationId).maybeSingle(),
       supabase.from('branches').select('*').eq('organization_id', organizationId).eq('is_active', true).order('is_main_branch', { ascending: false }),
-      supabase.from('subscriptions').select('*').eq('organization_id', organizationId).order('created_at', { ascending: false }).limit(1).maybeSingle(),
+      supabase.from('subscriptions').select('*, plan:subscription_plans(*)').eq('organization_id', organizationId).order('created_at', { ascending: false }).limit(1).maybeSingle(),
     ]);
     const org = orgResult.data as Organization | null;
     if (orgResult.error || !org || org.status !== 'active' || branchResult.error) {
@@ -159,6 +199,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     const branches = (branchResult.data || []) as Branch[];
+    supportOrgIdRef.current = organizationId;
     setOrganization(org);
     setAvailableBranches(branches);
     setActiveBranch(branches[0] || null);
@@ -175,6 +216,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         p_reason: reason || 'user_exit',
       });
     }
+    supportOrgIdRef.current = '';
     setSupportSession(null);
     setOrganization(null); setActiveBranch(null); setAvailableBranches([]); setSubscription(null); branchIdRef.current = '';
   }, [supportSession]);
@@ -202,7 +244,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     isDoctor: user?.role === 'doctor' || user?.role === 'assistant_doctor', isReceptionist: user?.role === 'receptionist',
     isAccountant: user?.role === 'accountant', isPatient: user?.role === 'patient',
     isEnterpriseDedicated: Boolean(organization?.is_enterprise_dedicated || APP_CONFIG.isEnterpriseMode),
-    can, login, register, resetPassword, updatePassword, switchBranch, refreshIdentity, enterFacilitySupport, exitFacilitySupport, logout,
+    can, login, register, resetPassword, updatePassword, changePassword, switchBranch, refreshIdentity, enterFacilitySupport, exitFacilitySupport, logout,
   }), [user, session, organization, activeBranch, availableBranches, subscription, isLoading, isPasswordRecovery, isSuperAdmin, isFacilitySupportMode, supportSession, enterFacilitySupport, exitFacilitySupport, refreshIdentity]);
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };

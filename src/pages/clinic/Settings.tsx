@@ -7,10 +7,11 @@ import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { useToast } from '../../context/ToastContext';
 import { supabase } from '../../lib/supabase';
-import { Settings as SettingsIcon, Building2, Shield, Palette, Globe, Server, Check } from 'lucide-react';
+import { SpecialtySelector } from '../../components/common/SpecialtySelector';
+import { Settings as SettingsIcon, Building2, Palette, Globe, Server, Stethoscope } from 'lucide-react';
 
 export const Settings: React.FC = () => {
-  const { organization, isEnterpriseDedicated, isOrgOwner } = useAuth();
+  const { organization, isEnterpriseDedicated, isOrgOwner, refreshIdentity } = useAuth();
   const { locale, t } = useLanguage();
   const { success, error } = useToast();
 
@@ -21,6 +22,11 @@ export const Settings: React.FC = () => {
   const [address, setAddress] = useState(organization?.address || '');
   const [taxNumber, setTaxNumber] = useState(organization?.tax_number || '');
   const [commercialReg, setCommercialReg] = useState(organization?.commercial_reg_no || '');
+  const [specialties, setSpecialties] = useState<string[]>(
+    Array.isArray(organization?.specialties) && organization.specialties.length > 0
+      ? organization.specialties
+      : ['general_practice']
+  );
   const [primaryColor, setPrimaryColor] = useState('#0C87EB');
   const [customDomain, setCustomDomain] = useState('');
   const [saving, setSaving] = useState(false);
@@ -29,11 +35,12 @@ export const Settings: React.FC = () => {
     if (!supabase || !organization) return;
     setNameAr(organization.name_ar); setNameEn(organization.name_en); setPhone(organization.phone); setEmail(organization.email);
     setAddress(organization.address || ''); setTaxNumber(organization.tax_number || ''); setCommercialReg(organization.commercial_reg_no || '');
+    setSpecialties(Array.isArray(organization.specialties) && organization.specialties.length > 0 ? organization.specialties : ['general_practice']);
     void supabase.from('organization_settings').select('primary_color,custom_domain').eq('organization_id', organization.id).maybeSingle().then(({data}) => {
       if (data?.primary_color) setPrimaryColor(data.primary_color);
       if (data?.custom_domain) setCustomDomain(data.custom_domain);
     });
-  }, [organization?.id]);
+  }, [organization]);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -47,13 +54,14 @@ export const Settings: React.FC = () => {
       address: address || null,
       tax_number: taxNumber || null,
       commercial_reg_no: commercialReg || null,
+      specialties: specialties.length > 0 ? specialties : ['general_practice'],
     }).eq('id', organization.id);
     if (orgError) { setSaving(false); error(locale==='ar'?'تعذر حفظ بيانات المنشأة.':'Could not save facility details.'); return; }
     const { error: settingsError } = await supabase.from('organization_settings').upsert({ organization_id: organization.id, primary_color: primaryColor, custom_domain: customDomain || null, updated_at: new Date().toISOString() }, { onConflict: 'organization_id' });
     setSaving(false);
     if (settingsError) { error(locale==='ar'?'تم حفظ بيانات المنشأة لكن تعذر حفظ الهوية البصرية.':'Facility details saved, but branding settings failed.'); return; }
+    await refreshIdentity();
     success(locale === 'ar' ? 'تم حفظ إعدادات وبيانات المنشأة بنجاح' : 'Settings saved successfully');
-    window.location.reload();
   };
 
   if (!organization) return null;
@@ -156,6 +164,20 @@ export const Settings: React.FC = () => {
               />
             </div>
           </div>
+        </div>
+
+        {/* Facility Medical Specialties */}
+        <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-2xs space-y-4">
+          <h3 className="font-bold text-slate-900 text-base flex items-center gap-2 pb-2 border-b border-slate-100">
+            <Stethoscope className="w-5 h-5 text-rose-600" />
+            {locale === 'ar' ? 'التخصصات الطبية والمحركات التشخيصية الفعّالة' : 'Active Medical Specialties & Diagnostic Modules'}
+          </h3>
+          <SpecialtySelector
+            selected={specialties}
+            onChange={setSpecialties}
+            facilityType={organization.facility_type}
+            ar={locale === 'ar'}
+          />
         </div>
 
         {/* Enterprise Dedicated Deployment Profile */}

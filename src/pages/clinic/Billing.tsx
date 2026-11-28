@@ -3,8 +3,8 @@ import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { useToast } from '../../context/ToastContext';
 import { supabase } from '../../lib/supabase';
-import { PaymentMode } from '../../types/database';
 import { CreditCard, DollarSign, Plus, Receipt, Wallet } from 'lucide-react';
+import { getClinicalStatusLabel, getPaymentModeLabel } from '../../lib/facilityLabels';
 
 type PatientOption = { id: string; mrn: string; first_name_ar: string; last_name_ar: string };
 type DoctorOption = { id: string; user?: { name_ar: string; name_en?: string }; specialty_title_ar: string };
@@ -32,10 +32,22 @@ type CommissionRow = {
   invoice?: { invoice_number: string };
 };
 
-const MODES: PaymentMode[] = ['cash', 'credit_card', 'bank_transfer', 'insurance', 'vodafone_cash', 'fawry'];
+import { PaymentMode } from '../../types/database';
+
+type PaymentRow = {
+  id: string;
+  receipt_number: string;
+  amount: number;
+  payment_mode: PaymentMode;
+  payment_date: string;
+  transaction_reference?: string | null;
+  patient?: PatientOption;
+};
+
+const MODES: PaymentMode[] = ['cash', 'instapay', 'wallet', 'vodafone_cash', 'fawry', 'credit_card', 'bank_transfer', 'insurance'];
 
 export const Billing: React.FC<{ initialTab?: 'invoices' | 'commissions' }> = ({ initialTab = 'invoices' }) => {
-  const { organization, activeBranch, isOrgOwner } = useAuth();
+  const { organization, activeBranch, isOrgOwner, can } = useAuth();
   const { locale, t } = useLanguage();
   const { success, error } = useToast();
 
@@ -71,6 +83,10 @@ export const Billing: React.FC<{ initialTab?: 'invoices' | 'commissions' }> = ({
   const [cashboxId, setCashboxId] = useState('');
   const [amount, setAmount] = useState('');
   const [mode, setMode] = useState<PaymentMode>('cash');
+  const [paymentRef, setPaymentRef] = useState('');
+  const [payments, setPayments] = useState<PaymentRow[]>([]);
+  const [paymentModeFilter, setPaymentModeFilter] = useState<string>('all');
+  const [invoiceStatusFilter, setInvoiceStatusFilter] = useState<string>('all');
 
   const ar = locale === 'ar';
   const orgId = organization?.id || '';
@@ -99,7 +115,16 @@ export const Billing: React.FC<{ initialTab?: 'invoices' | 'commissions' }> = ({
       .limit(100);
     if (activeBranch?.id) commQuery = commQuery.eq('branch_id', activeBranch.id);
 
-    const [pat, doc, srv, box, invRes, commRes] = await Promise.all([
+    let payQuery = supabase
+      .from('payments')
+      .select('id,receipt_number,amount,payment_mode,payment_date,transaction_reference,patient:patients(id,mrn,first_name_ar,last_name_ar)')
+      .eq('organization_id', orgId)
+      .eq('is_reversal', false)
+      .order('payment_date', { ascending: false })
+      .limit(150);
+    if (activeBranch?.id) payQuery = payQuery.eq('branch_id', activeBranch.id);
+
+    const [pat, doc, srv, box, invRes, commRes, payRes] = await Promise.all([
       supabase.from('patients').select('id,mrn,first_name_ar,last_name_ar').eq('organization_id', orgId).eq('is_active', true),
       supabase.from('doctors').select('id,specialty_title_ar,user:users(name_ar,name_en)').eq('organization_id', orgId).eq('is_active', true),
       supabase.from('services').select('id,code,name_ar,name_en,standard_price').eq('organization_id', orgId).eq('is_active', true).order('name_ar'),
@@ -108,6 +133,7 @@ export const Billing: React.FC<{ initialTab?: 'invoices' | 'commissions' }> = ({
         : Promise.resolve({ data: [], error: null }),
       invQuery,
       commQuery,
+      payQuery,
     ]);
 
     if (pat.error || doc.error || srv.error || box.error || invRes.error) {
@@ -122,6 +148,7 @@ export const Billing: React.FC<{ initialTab?: 'invoices' | 'commissions' }> = ({
     setCashboxes((box.data || []) as CashboxOption[]);
     setInvoices((invRes.data || []) as unknown as InvoiceRow[]);
     setCommissions((commRes.data || []) as unknown as CommissionRow[]);
+    setPayments((payRes.error ? [] : (payRes.data || [])) as unknown as PaymentRow[]);
     setLoading(false);
   }, [orgId, activeBranch?.id, ar, error]);
 
@@ -192,6 +219,7 @@ export const Billing: React.FC<{ initialTab?: 'invoices' | 'commissions' }> = ({
       p_amount: Number(amount),
       p_payment_mode: mode,
       p_cashbox_id: cashboxId,
+      p_transaction_reference: paymentRef.trim() || null,
     });
     setSaving(false);
     if (rpcError) {
@@ -201,6 +229,7 @@ export const Billing: React.FC<{ initialTab?: 'invoices' | 'commissions' }> = ({
     const row = Array.isArray(data) ? data[0] : data;
     success(ar ? `تم تسجيل الإيصال ${row?.receipt_number || ''}` : `Payment receipt ${row?.receipt_number || ''} recorded.`);
     setPayInvoice(null);
+    setPaymentRef('');
     await load();
   };
 
@@ -209,6 +238,16 @@ export const Billing: React.FC<{ initialTab?: 'invoices' | 'commissions' }> = ({
   const collected = invoices.reduce((sum, i) => sum + Number(i.paid_amount), 0);
   const due = invoices.reduce((sum, i) => sum + Number(i.balance_due), 0);
   const totalComm = commissions.reduce((sum, c) => sum + Number(c.amount || 0), 0);
+  const visibleInvoices = invoiceStatusFilter === 'all'
+    ? invoices
+    : invoices.filter(i => invoiceStatusFilter === 'pending' ? Number(i.balance_due) > 0 : Number(i.balance_due) <= 0);
+  const visiblePayments = paymentModeFilter === 'all'
+    ? payments
+    : payments.filter(p => paymentModeFilter === '__wallets__' ? ['wallet', 'vodafone_cash'].includes(p.payment_mode) : p.payment_mode === paymentModeFilter);
+  const methodTotals = payments.reduce<Record<string, number>>((acc, p) => {
+    acc[p.payment_mode] = (acc[p.payment_mode] || 0) + Number(p.amount || 0);
+    return acc;
+  }, {});
 
   return (
     <main className="space-y-5" dir={ar ? 'rtl' : 'ltr'}>
@@ -232,7 +271,7 @@ export const Billing: React.FC<{ initialTab?: 'invoices' | 'commissions' }> = ({
           </button>
           <button
             onClick={() => setInvoiceOpen(true)}
-            disabled={!services.length || !activeBranch}
+            disabled={!services.length || !activeBranch || !can('billing', 'create')}
             className="inline-flex items-center gap-2 rounded-xl bg-medicore-600 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50"
           >
             <Plus className="h-4 w-4" />
@@ -257,27 +296,55 @@ export const Billing: React.FC<{ initialTab?: 'invoices' | 'commissions' }> = ({
         ))}
       </div>
 
-      <div className="flex gap-2 border-b border-slate-200 pb-2">
-        <button
-          type="button"
-          onClick={() => setViewTab('invoices')}
-          className={`inline-flex items-center gap-1.5 rounded-xl px-4 py-2 text-sm font-bold ${
-            viewTab === 'invoices' ? 'bg-medicore-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-100'
-          }`}
-        >
-          <CreditCard className="h-4 w-4" />
-          {ar ? `الفواتير (${invoices.length})` : `Invoices (${invoices.length})`}
-        </button>
-        <button
-          type="button"
-          onClick={() => setViewTab('commissions')}
-          className={`inline-flex items-center gap-1.5 rounded-xl px-4 py-2 text-sm font-bold ${
-            viewTab === 'commissions' ? 'bg-medicore-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-100'
-          }`}
-        >
-          <DollarSign className="h-4 w-4" />
-          {ar ? `عمولات الأطباء (${commissions.length})` : `Commissions (${commissions.length})`}
-        </button>
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-2">
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => setViewTab('invoices')}
+            className={`inline-flex items-center gap-1.5 rounded-xl px-4 py-2 text-sm font-bold ${
+              viewTab === 'invoices' ? 'bg-medicore-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-100'
+            }`}
+          >
+            <CreditCard className="h-4 w-4" />
+            {ar ? `الفواتير (${invoices.length})` : `Invoices (${invoices.length})`}
+          </button>
+          <button
+            type="button"
+            onClick={() => setViewTab('commissions')}
+            className={`inline-flex items-center gap-1.5 rounded-xl px-4 py-2 text-sm font-bold ${
+              viewTab === 'commissions' ? 'bg-medicore-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-100'
+            }`}
+          >
+            <DollarSign className="h-4 w-4" />
+            {ar ? `عمولات الأطباء (${commissions.length})` : `Commissions (${commissions.length})`}
+          </button>
+        </div>
+        {viewTab === 'invoices' && (
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <select
+              value={invoiceStatusFilter}
+              onChange={e => setInvoiceStatusFilter(e.target.value)}
+              className="rounded-xl border bg-white px-3 py-1.5 font-bold"
+            >
+              <option value="all">{ar ? 'كل حالات السداد' : 'All Invoice Statuses'}</option>
+              <option value="pending">{ar ? 'قيد السداد فقط' : 'Pending Payment'}</option>
+              <option value="paid">{ar ? 'تم السداد فقط' : 'Paid'}</option>
+            </select>
+            <select
+              value={paymentModeFilter}
+              onChange={e => setPaymentModeFilter(e.target.value)}
+              className="rounded-xl border bg-white px-3 py-1.5 font-bold"
+            >
+              <option value="all">{ar ? 'كل وسائل التحصيل' : 'All Payment Methods'}</option>
+              <option value="cash">{getPaymentModeLabel('cash', ar)}</option>
+              <option value="instapay">{getPaymentModeLabel('instapay', ar)}</option>
+              <option value="__wallets__">{ar ? 'كل المحافظ الإلكترونية' : 'All E-Wallets'}</option>
+              {MODES.filter(m => m !== 'cash' && m !== 'instapay').map(m => (
+                <option key={m} value={m}>{getPaymentModeLabel(m, ar)}</option>
+              ))}
+            </select>
+          </div>
+        )}
       </div>
 
       {!services.length && (
@@ -287,54 +354,136 @@ export const Billing: React.FC<{ initialTab?: 'invoices' | 'commissions' }> = ({
       )}
 
       {viewTab === 'invoices' ? (
+        <div className="space-y-4">
         <section className="overflow-hidden rounded-2xl border bg-white">
           <div className="border-b p-4 font-bold">
-            {ar ? 'الفواتير' : 'Invoices'} · {invoices.length}
+            {ar ? 'الفواتير' : 'Invoices'} · {visibleInvoices.length}
           </div>
           {loading ? (
             <p className="p-8 text-sm text-slate-500">{ar ? 'جار التحميل...' : 'Loading...'}</p>
-          ) : invoices.length === 0 ? (
-            <p className="p-8 text-sm text-slate-500">{ar ? 'لا توجد فواتير في هذا الفرع.' : 'No invoices for this branch.'}</p>
+          ) : visibleInvoices.length === 0 ? (
+            <p className="p-8 text-sm text-slate-500">{ar ? 'لا توجد فواتير مطابقة في هذا الفرع.' : 'No matching invoices for this branch.'}</p>
+          ) : (
+            <>
+              <div className="divide-y md:hidden">
+                {visibleInvoices.map((inv) => (
+                  <article key={inv.id} className="p-4 space-y-2 text-xs">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-mono font-bold text-slate-900">{inv.invoice_number}</span>
+                      <span className={`rounded-full px-2 py-0.5 font-bold ${Number(inv.balance_due) > 0 ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}`}>
+                        {getClinicalStatusLabel(inv.status, ar)}
+                      </span>
+                    </div>
+                    <p className="font-bold text-slate-800">{inv.patient?.first_name_ar} {inv.patient?.last_name_ar} · {inv.issue_date}</p>
+                    <div className="flex flex-wrap gap-3 text-[11px] text-slate-600">
+                      <span>{ar ? 'الإجمالي:' : 'Total:'} {Number(inv.total_amount).toLocaleString()}</span>
+                      <span>{ar ? 'المدفوع:' : 'Paid:'} {Number(inv.paid_amount).toLocaleString()}</span>
+                      <span className="font-bold text-slate-900">{ar ? 'المتبقي:' : 'Balance:'} {Number(inv.balance_due).toLocaleString()} {currency}</span>
+                    </div>
+                    {Number(inv.balance_due) > 0 && (
+                      <button
+                        onClick={() => {
+                          setPayInvoice(inv);
+                          setAmount(String(inv.balance_due));
+                          setCashboxId(cashboxes[0]?.id || '');
+                        }}
+                        disabled={!cashboxes.length}
+                        className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-3 py-1.5 font-bold text-white disabled:opacity-50"
+                      >
+                        <Wallet className="h-3 w-3" />
+                        {ar ? 'تم السداد / تحصيل' : 'Collect'}
+                      </button>
+                    )}
+                  </article>
+                ))}
+              </div>
+              <div className="hidden md:block overflow-x-auto">
+                <table className="w-full text-start text-xs">
+                  <thead className="bg-slate-50">
+                    <tr>
+                      {[ar ? 'رقم الفاتورة' : 'Invoice', ar ? 'المريض' : 'Patient', ar ? 'التاريخ' : 'Date', ar ? 'الإجمالي' : 'Total', ar ? 'المدفوع' : 'Paid', ar ? 'المتبقي' : 'Balance', ar ? 'الحالة' : 'Status', ''].map((h, i) => (
+                        <th key={i} className="p-3 text-start">
+                          {h}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {visibleInvoices.map((inv) => (
+                      <tr key={inv.id} className="border-t">
+                        <td className="p-3 font-mono font-bold">{inv.invoice_number}</td>
+                        <td className="p-3">
+                          {inv.patient?.first_name_ar} {inv.patient?.last_name_ar}
+                        </td>
+                        <td className="p-3">{inv.issue_date}</td>
+                        <td className="p-3">{Number(inv.total_amount).toLocaleString()}</td>
+                        <td className="p-3">{Number(inv.paid_amount).toLocaleString()}</td>
+                        <td className="p-3 font-bold">{Number(inv.balance_due).toLocaleString()}</td>
+                        <td className="p-3">
+                          <span className={`rounded-full px-2 py-0.5 font-bold ${Number(inv.balance_due) > 0 ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}`}>
+                            {getClinicalStatusLabel(inv.status, ar)}
+                          </span>
+                        </td>
+                        <td className="p-3">
+                          {Number(inv.balance_due) > 0 && (
+                            <button
+                              onClick={() => {
+                                setPayInvoice(inv);
+                                setAmount(String(inv.balance_due));
+                                setCashboxId(cashboxes[0]?.id || '');
+                              }}
+                              disabled={!cashboxes.length}
+                              className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-3 py-1.5 font-bold text-white disabled:opacity-50"
+                            >
+                              <Wallet className="h-3 w-3" />
+                              {ar ? 'تحصيل' : 'Collect'}
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+        </section>
+
+        <section className="overflow-hidden rounded-2xl border bg-white p-4 space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-sm font-black text-slate-900">
+              {ar ? `سجل التحصيلات حسب وسيلة الدفع (${visiblePayments.length})` : `Payment Receipts by Method (${visiblePayments.length})`}
+            </h3>
+            <div className="flex flex-wrap gap-2 text-[11px] font-bold">
+              <span className="rounded-lg bg-slate-100 px-2.5 py-1">{getPaymentModeLabel('cash', ar)}: {(methodTotals.cash || 0).toLocaleString()}</span>
+              <span className="rounded-lg bg-purple-50 text-purple-800 px-2.5 py-1">{getPaymentModeLabel('instapay', ar)}: {(methodTotals.instapay || 0).toLocaleString()}</span>
+              <span className="rounded-lg bg-teal-50 text-teal-800 px-2.5 py-1">{getPaymentModeLabel('wallet', ar)}: {((methodTotals.wallet || 0) + (methodTotals.vodafone_cash || 0)).toLocaleString()}</span>
+            </div>
+          </div>
+          {visiblePayments.length === 0 ? (
+            <p className="py-4 text-center text-xs text-slate-400">{ar ? 'لا توجد سندات تحصيل بهذه الوسيلة.' : 'No payment receipts for this method.'}</p>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-start text-xs">
                 <thead className="bg-slate-50">
                   <tr>
-                    {[ar ? 'رقم الفاتورة' : 'Invoice', ar ? 'المريض' : 'Patient', ar ? 'التاريخ' : 'Date', ar ? 'الإجمالي' : 'Total', ar ? 'المدفوع' : 'Paid', ar ? 'المتبقي' : 'Balance', ar ? 'الحالة' : 'Status', ''].map((h, i) => (
-                      <th key={i} className="p-3 text-start">
-                        {h}
-                      </th>
-                    ))}
+                    <th className="p-2.5 text-start">{ar ? 'الإيصال' : 'Receipt'}</th>
+                    <th className="p-2.5 text-start">{ar ? 'المريض' : 'Patient'}</th>
+                    <th className="p-2.5 text-start">{ar ? 'الوسيلة' : 'Method'}</th>
+                    <th className="p-2.5 text-start">{ar ? 'المرجع' : 'Ref'}</th>
+                    <th className="p-2.5 text-start">{ar ? 'المبلغ' : 'Amount'}</th>
+                    <th className="p-2.5 text-start">{ar ? 'التاريخ' : 'Date'}</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {invoices.map((inv) => (
-                    <tr key={inv.id} className="border-t">
-                      <td className="p-3 font-mono font-bold">{inv.invoice_number}</td>
-                      <td className="p-3">
-                        {inv.patient?.first_name_ar} {inv.patient?.last_name_ar}
-                      </td>
-                      <td className="p-3">{inv.issue_date}</td>
-                      <td className="p-3">{Number(inv.total_amount).toLocaleString()}</td>
-                      <td className="p-3">{Number(inv.paid_amount).toLocaleString()}</td>
-                      <td className="p-3 font-bold">{Number(inv.balance_due).toLocaleString()}</td>
-                      <td className="p-3">{inv.status}</td>
-                      <td className="p-3">
-                        {Number(inv.balance_due) > 0 && (
-                          <button
-                            onClick={() => {
-                              setPayInvoice(inv);
-                              setAmount(String(inv.balance_due));
-                              setCashboxId(cashboxes[0]?.id || '');
-                            }}
-                            disabled={!cashboxes.length}
-                            className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-3 py-1.5 font-bold text-white disabled:opacity-50"
-                          >
-                            <Wallet className="h-3 w-3" />
-                            {ar ? 'تحصيل' : 'Collect'}
-                          </button>
-                        )}
-                      </td>
+                  {visiblePayments.slice(0, 25).map(p => (
+                    <tr key={p.id} className="border-t">
+                      <td className="p-2.5 font-mono font-bold">{p.receipt_number}</td>
+                      <td className="p-2.5">{p.patient ? `${p.patient.first_name_ar} ${p.patient.last_name_ar}` : '—'}</td>
+                      <td className="p-2.5"><span className="rounded-full bg-slate-100 px-2 py-0.5 font-bold">{getPaymentModeLabel(p.payment_mode, ar)}</span></td>
+                      <td className="p-2.5 font-mono text-slate-500">{p.transaction_reference || '—'}</td>
+                      <td className="p-2.5 font-mono font-bold text-emerald-700">{Number(p.amount).toLocaleString()} {currency}</td>
+                      <td className="p-2.5 font-mono text-slate-500">{p.payment_date?.slice(0, 10)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -342,6 +491,7 @@ export const Billing: React.FC<{ initialTab?: 'invoices' | 'commissions' }> = ({
             </div>
           )}
         </section>
+        </div>
       ) : (
         <section className="overflow-hidden rounded-2xl border bg-white">
           <div className="border-b p-4 font-bold">
@@ -510,10 +660,14 @@ export const Billing: React.FC<{ initialTab?: 'invoices' | 'commissions' }> = ({
               <select value={mode} onChange={(e) => setMode(e.target.value as PaymentMode)} className="mt-1 w-full rounded-xl border bg-white p-2.5">
                 {MODES.map((m) => (
                   <option key={m} value={m}>
-                    {m}
+                    {getPaymentModeLabel(m, ar)}
                   </option>
                 ))}
               </select>
+            </label>
+            <label className="block text-xs font-bold">
+              {ar ? 'رقم مرجعي (إنستاباي / محفظة / تحويل - اختياري)' : 'Reference No (InstaPay / Wallet / Ref)'}
+              <input value={paymentRef} onChange={(e) => setPaymentRef(e.target.value)} placeholder="INST-..." className="mt-1 w-full rounded-xl border p-2.5 font-mono text-xs" />
             </label>
             <div className="flex justify-end gap-2">
               <button type="button" onClick={() => setPayInvoice(null)} className="rounded-xl border px-4 py-2">

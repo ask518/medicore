@@ -8,15 +8,26 @@ import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { useToast } from '../../context/ToastContext';
 import { supabase } from '../../lib/supabase';
-import { Patient, BloodGroupType, GenderType, InsuranceCompany } from '../../types/database';
+import { Patient, BloodGroupType, GenderType, InsuranceCompany, PatientBalanceEntry, PatientBalanceEntryType } from '../../types/database';
 import { 
   Users, Search, Plus, UserPlus, Phone, Calendar, Heart, 
   AlertTriangle, Clock, FileText, ChevronRight, X, ShieldAlert,
-  Printer, MessageCircle, KeyRound
+  Printer, MessageCircle, KeyRound, Wallet, DollarSign
 } from 'lucide-react';
 import {
   buildTemplateMessage, logAndOpenWhatsApp, logAndStartCall, NotificationTemplateKey
 } from '../../lib/communications';
+import {
+  formatDoctorDisplayName,
+  formatQuotaErrorMessage,
+  formatSpecialtyFindingTypeLabel,
+  getAllergySeverityLabel,
+  getClinicalStatusLabel,
+  getConditionTypeLabel,
+  getPaymentModeLabel,
+  getSpecialtyModuleLabel,
+} from '../../lib/facilityLabels';
+import { PlanQuotaNotice } from '../../components/common/PlanQuotaNotice';
 
 export const Patients: React.FC = () => {
   const { organization, activeBranch, user } = useAuth();
@@ -69,7 +80,25 @@ export const Patients: React.FC = () => {
   const [patientRads, setPatientRads] = useState<any[]>([]);
   const [patientSpecialtyFindings, setPatientSpecialtyFindings] = useState<any[]>([]);
   const [patientInvoices, setPatientInvoices] = useState<any[]>([]);
+  const [patientBalances, setPatientBalances] = useState<PatientBalanceEntry[]>([]);
+  const [cashboxes, setCashboxes] = useState<{ id: string; name: string; current_balance: number }[]>([]);
   const [waMessage, setWaMessage] = useState('');
+
+  // Legacy opening record fields (optional inside Add Patient modal)
+  const [legacyBalanceType, setLegacyBalanceType] = useState<'none' | 'legacy_debit' | 'legacy_credit'>('none');
+  const [legacyBalanceAmount, setLegacyBalanceAmount] = useState('');
+  const [legacyBalanceNote, setLegacyBalanceNote] = useState('');
+  const [legacyMedicalSummary, setLegacyMedicalSummary] = useState('');
+
+  // Balance Entry modal (for existing patient)
+  const [showBalanceModal, setShowBalanceModal] = useState(false);
+  const [balanceEntryType, setBalanceEntryType] = useState<PatientBalanceEntryType>('legacy_debit');
+  const [balanceAmount, setBalanceAmount] = useState('');
+  const [balanceDescription, setBalanceDescription] = useState('');
+  const [balancePaymentMode, setBalancePaymentMode] = useState('cash');
+  const [balanceCashboxId, setBalanceCashboxId] = useState('');
+  const [balanceRefNo, setBalanceRefNo] = useState('');
+  const [savingBalance, setSavingBalance] = useState(false);
 
   const orgId = organization?.id || '';
 
@@ -104,9 +133,10 @@ export const Patients: React.FC = () => {
       if (!supabase || !selectedPatient) {
         setPatientAllergies([]); setMedicalHistories([]); setConsultations([]); setPrescriptions([]);
         setPatientLabs([]); setPatientRads([]); setPatientSpecialtyFindings([]); setPatientInvoices([]);
+        setPatientBalances([]);
         setAllergyLoadError(false); setHistoryLoadError(false); return;
       }
-      const [allergies, histories, cons, rxs, labs, rads, findings, invs] = await Promise.all([
+      const [allergies, histories, cons, rxs, labs, rads, findings, invs, balances, cashboxRes] = await Promise.all([
         supabase.from('patient_allergies').select('*').eq('organization_id', orgId).eq('patient_id', selectedPatient.id),
         supabase.from('medical_histories').select('*').eq('organization_id', orgId).eq('patient_id', selectedPatient.id).eq('is_active', true).order('created_at', { ascending: false }),
         supabase.from('consultations').select('*,doctor:doctors(specialty_title_ar,user:users(name_ar,name_en))').eq('organization_id', orgId).eq('patient_id', selectedPatient.id).order('consultation_date', { ascending: false }),
@@ -115,6 +145,8 @@ export const Patients: React.FC = () => {
         supabase.from('radiology_orders').select('*').eq('organization_id', orgId).eq('patient_id', selectedPatient.id).order('created_at', { ascending: false }),
         supabase.from('anatomical_findings').select('*').eq('organization_id', orgId).eq('patient_id', selectedPatient.id).order('created_at', { ascending: false }).limit(20),
         supabase.from('invoices').select('id,invoice_number,issue_date,total_amount,paid_amount,balance_due,status').eq('organization_id', orgId).eq('patient_id', selectedPatient.id).order('issue_date', { ascending: false }),
+        supabase.from('patient_balance_entries').select('*').eq('organization_id', orgId).eq('patient_id', selectedPatient.id).order('entry_date', { ascending: false }).order('created_at', { ascending: false }),
+        supabase.from('cashboxes').select('id,name,current_balance').eq('organization_id', orgId).eq('is_active', true).order('name'),
       ]);
       if (!active) return;
       setAllergyLoadError(Boolean(allergies.error));
@@ -126,6 +158,10 @@ export const Patients: React.FC = () => {
       setPatientRads(rads.error ? [] : rads.data || []);
       setPatientSpecialtyFindings(findings.error ? [] : findings.data || []);
       setPatientInvoices(invs.error ? [] : invs.data || []);
+      setPatientBalances(balances.error ? [] : (balances.data || []) as PatientBalanceEntry[]);
+      const cbRows = cashboxRes.error ? [] : (cashboxRes.data || []) as { id: string; name: string; current_balance: number }[];
+      setCashboxes(cbRows);
+      if (cbRows.length > 0 && !balanceCashboxId) setBalanceCashboxId(cbRows[0].id);
       const rxRows = rxs.error ? [] : rxs.data || [];
       if (!rxRows.length) { setPrescriptions([]); return; }
       const { data: items, error: itemsError } = await supabase.from('prescription_items').select('*').eq('organization_id', orgId).in('prescription_id', rxRows.map(rx => rx.id));
@@ -192,8 +228,41 @@ export const Patients: React.FC = () => {
       is_active: true,
     }).select('*').single();
     setIsSavingPatient(false);
-    if (insertError || !row) { error('تعذر حفظ ملف المريض. تحقق من البيانات وصلاحية الحساب.'); return; }
+    if (insertError || !row) {
+      error(formatQuotaErrorMessage(insertError?.message, locale === 'ar') || (locale === 'ar' ? 'تعذر حفظ ملف المريض. تحقق من البيانات وصلاحية الحساب.' : 'Could not save patient record. Check details and permissions.'));
+      return;
+    }
     const created = row as Patient;
+    const legacyAmt = Number(legacyBalanceAmount);
+    if (legacyBalanceType !== 'none' && legacyAmt > 0) {
+      const { error: balErr } = await supabase.rpc('record_patient_balance_entry', {
+        p_patient_id: created.id,
+        p_entry_type: legacyBalanceType,
+        p_amount: legacyAmt,
+        p_description: legacyBalanceNote.trim() || (locale === 'ar'
+          ? (legacyBalanceType === 'legacy_debit' ? 'رصيد قديم مستحق على المريض' : 'رصيد دفعة مقدمة / باقة قديمة للمريض')
+          : (legacyBalanceType === 'legacy_debit' ? 'Pre-existing patient balance due' : 'Pre-existing prepaid patient credit')),
+        p_entry_date: new Date().toISOString().slice(0, 10),
+        p_payment_mode: null,
+        p_cashbox_id: null,
+        p_is_legacy: true,
+        p_reference_no: null,
+      });
+      if (balErr) {
+        error(locale === 'ar' ? `تم حفظ المريض لكن تعذر تسجيل الرصيد القديم: ${balErr.message}` : `Patient saved but legacy balance failed: ${balErr.message}`);
+      }
+    }
+    if (legacyMedicalSummary.trim()) {
+      await supabase.from('medical_histories').insert({
+        organization_id: orgId,
+        patient_id: created.id,
+        condition_type: 'chronic_disease',
+        condition_name: locale === 'ar' ? 'ملف طبي سابق (أرشيف قديم)' : 'Legacy Medical Summary',
+        notes: legacyMedicalSummary.trim(),
+        is_active: true,
+      });
+    }
+
     setPatients(current => [created, ...current]);
 
     success(locale === 'ar' ? `تم فتح ملف مريض جديد برقم ${created.mrn}` : `Patient registered: ${created.mrn}`);
@@ -214,6 +283,51 @@ export const Patients: React.FC = () => {
     setInsuranceCompanyId('');
     setInsuranceCardNumber('');
     setInsuranceCoveragePercent('80');
+    setLegacyBalanceType('none');
+    setLegacyBalanceAmount('');
+    setLegacyBalanceNote('');
+    setLegacyMedicalSummary('');
+  };
+
+  const recordBalanceEntry = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!supabase || !selectedPatient) return;
+    const amt = Number(balanceAmount);
+    if (!amt || amt <= 0) {
+      error(locale === 'ar' ? 'أدخل مبلغاً صحيحاً أكبر من صفر.' : 'Enter a valid amount greater than zero.');
+      return;
+    }
+    const isCashMovement = balanceEntryType === 'debit_payment' || balanceEntryType === 'credit_refund';
+    setSavingBalance(true);
+    const { error: rpcErr } = await supabase.rpc('record_patient_balance_entry', {
+      p_patient_id: selectedPatient.id,
+      p_entry_type: balanceEntryType,
+      p_amount: amt,
+      p_description: balanceDescription.trim() || (locale === 'ar' ? 'قيد رصيد مريض' : 'Patient balance adjustment'),
+      p_entry_date: new Date().toISOString().slice(0, 10),
+      p_payment_mode: isCashMovement ? balancePaymentMode : null,
+      p_cashbox_id: isCashMovement ? (balanceCashboxId || null) : null,
+      p_is_legacy: balanceEntryType === 'legacy_debit' || balanceEntryType === 'legacy_credit',
+      p_reference_no: balanceRefNo.trim() || null,
+    });
+    setSavingBalance(false);
+    if (rpcErr) {
+      error(locale === 'ar' ? `تعذر حفظ قيد الرصيد: ${rpcErr.message}` : `Could not save balance entry: ${rpcErr.message}`);
+      return;
+    }
+    const { data: refreshed } = await supabase
+      .from('patient_balance_entries')
+      .select('*')
+      .eq('organization_id', orgId)
+      .eq('patient_id', selectedPatient.id)
+      .order('entry_date', { ascending: false })
+      .order('created_at', { ascending: false });
+    setPatientBalances((refreshed || []) as PatientBalanceEntry[]);
+    success(locale === 'ar' ? 'تم تحديث الحساب المالي للمريض بنجاح.' : 'Patient financial balance updated.');
+    setShowBalanceModal(false);
+    setBalanceAmount('');
+    setBalanceDescription('');
+    setBalanceRefNo('');
   };
 
   return (
@@ -241,6 +355,7 @@ export const Patients: React.FC = () => {
       </div>
 
       {/* Search Input Box */}
+      <PlanQuotaNotice orgId={orgId} ar={locale === 'ar'} scope="patients" />
       <div className="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-2xs flex items-center gap-3">
         <Search className="w-5 h-5 text-slate-400 ms-1" />
         <input
@@ -434,7 +549,7 @@ export const Patients: React.FC = () => {
                   <p className="text-xs text-rose-800 font-medium">
                     {allergyLoadError
                       ? (locale === 'ar' ? 'تعذر تحميل سجل الحساسية. لا تعتمد على عدم ظهور حساسية.' : 'Could not load allergy history; do not assume there are no allergies.')
-                      : patientAllergies.length ? patientAllergies.map(item => `${item.allergen} (${item.severity})`).join('، ') : (locale === 'ar' ? 'لا توجد حساسية مسجلة في الملف' : 'No allergies recorded in this file')}
+                      : patientAllergies.length ? patientAllergies.map(item => `${item.allergen} (${getAllergySeverityLabel(item.severity, locale === 'ar')})`).join(locale === 'ar' ? '، ' : ', ') : (locale === 'ar' ? 'لا توجد حساسية مسجلة في الملف' : 'No allergies recorded in this file')}
                   </p>
                 </div>
               </div>
@@ -459,7 +574,7 @@ export const Patients: React.FC = () => {
 
             <section className="space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-4">
               <h3 className="text-sm font-black">{locale==='ar'?'التاريخ المرضي المسجل':'Recorded medical history'}</h3>
-              {medicalHistories.length ? medicalHistories.map(item=><article key={item.id} className="rounded-lg border bg-white p-3 text-xs"><b>{item.condition_name}</b><span className="ms-2 text-slate-500">{item.condition_type}{item.onset_year?` · ${item.onset_year}`:''}</span>{item.notes&&<p className="mt-1 text-slate-600">{item.notes}</p>}</article>) : <p className="text-xs text-slate-500">{locale==='ar'?'لا يوجد تاريخ مرضي مسجل في هذا الملف.':'No medical history is recorded in this file.'}</p>}
+              {medicalHistories.length ? medicalHistories.map(item=><article key={item.id} className="rounded-lg border bg-white p-3 text-xs"><b>{item.condition_name}</b><span className="ms-2 text-slate-500">{getConditionTypeLabel(item.condition_type, locale === 'ar')}{item.onset_year?` · ${item.onset_year}`:''}</span>{item.notes&&<p className="mt-1 text-slate-600">{item.notes}</p>}</article>) : <p className="text-xs text-slate-500">{locale==='ar'?'لا يوجد تاريخ مرضي مسجل في هذا الملف.':'No medical history is recorded in this file.'}</p>}
             </section>
 
             {/* Chronological Clinical Timeline */}
@@ -486,11 +601,11 @@ export const Patients: React.FC = () => {
                             {new Date(con.consultation_date).toLocaleDateString()}
                           </span>
                           <span className="text-xs text-slate-500">
-                            (د. {con.doctor?.user?.name_ar || con.doctor?.specialty_title_ar})
+                            ({formatDoctorDisplayName(locale === 'ar' ? (con.doctor?.user?.name_ar || con.doctor?.specialty_title_ar) : (con.doctor?.user?.name_en || con.doctor?.user?.name_ar || con.doctor?.specialty_title_en), locale === 'ar')})
                           </span>
                         </div>
                         <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
-                          {con.status}
+                          {getClinicalStatusLabel(con.status, locale === 'ar')}
                         </span>
                       </div>
 
@@ -530,12 +645,12 @@ export const Patients: React.FC = () => {
                 <div key={rx.id} className="p-3 rounded-xl border border-slate-200 bg-teal-50/20 text-xs space-y-1.5">
                   <div className="flex items-center justify-between font-bold text-slate-800">
                     <span>{rx.prescription_number} ({rx.issued_date})</span>
-                    <span className="text-[11px] text-teal-700">د. {rx.doctor?.user?.name_ar || '-'}</span>
+                    <span className="text-[11px] text-teal-700">{formatDoctorDisplayName(locale === 'ar' ? rx.doctor?.user?.name_ar : (rx.doctor?.user?.name_en || rx.doctor?.user?.name_ar), locale === 'ar')}</span>
                   </div>
                   <div className="space-y-1">
                     {rx.items?.map((it: any) => (
                       <p key={it.id} className="text-slate-700 ps-2 border-s-2 border-teal-400">
-                        • {it.drug_name} — {it.dosage} ({it.frequency} لمدة {it.duration})
+                        • {it.drug_name} — {it.dosage} ({it.frequency} {locale === 'ar' ? 'لمدة' : 'for'} {it.duration})
                       </p>
                     ))}
                   </div>
@@ -554,7 +669,7 @@ export const Patients: React.FC = () => {
                     <div key={lo.id} className="rounded-lg bg-white border border-slate-200 p-2.5 space-y-1">
                       <div className="flex justify-between font-bold">
                         <span className="font-mono text-teal-700">{lo.order_number}</span>
-                        <span>{lo.status}</span>
+                        <span>{getClinicalStatusLabel(lo.status, locale === 'ar')}</span>
                       </div>
                       {(lo.results || []).map((r: any) => (
                         <p key={r.id} className={r.is_abnormal ? 'text-rose-700 font-bold' : 'text-slate-600'}>
@@ -575,7 +690,7 @@ export const Patients: React.FC = () => {
                     <div key={ro.id} className="rounded-lg bg-white border border-slate-200 p-2.5 space-y-1">
                       <div className="flex justify-between font-bold">
                         <span className="font-mono text-indigo-700">{ro.order_number}</span>
-                        <span>{ro.status}</span>
+                        <span>{getClinicalStatusLabel(ro.status, locale === 'ar')}</span>
                       </div>
                       <p className="text-slate-700">{ro.imaging_modality} — {ro.body_part}</p>
                       {ro.conclusion && <p className="text-indigo-900 font-semibold">{ro.conclusion}</p>}
@@ -592,33 +707,121 @@ export const Patients: React.FC = () => {
                   patientSpecialtyFindings.map((sf: any) => (
                     <div key={sf.id} className="rounded-lg bg-white border border-slate-200 p-2.5">
                       <div className="flex justify-between font-bold">
-                        <span className="text-teal-700">{sf.module_type}</span>
+                        <span className="text-teal-700">{getSpecialtyModuleLabel(sf.module_type, locale === 'ar')}</span>
                         <span className="text-slate-400">{sf.created_at?.slice(0, 10)}</span>
                       </div>
-                      <p className="text-slate-600">{sf.finding_type}{sf.annotation_text ? ` — ${sf.annotation_text}` : ''}</p>
+                      <p className="text-slate-600">{formatSpecialtyFindingTypeLabel(sf.finding_type, locale === 'ar')}{sf.annotation_text ? ` — ${sf.annotation_text}` : ''}</p>
                     </div>
                   ))
                 )}
               </div>
 
-              <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-4 space-y-2 text-xs">
-                <h4 className="font-black text-slate-900">{locale === 'ar' ? `الفواتير والحسابات (${patientInvoices.length})` : `Invoices & Balances (${patientInvoices.length})`}</h4>
-                {patientInvoices.length === 0 ? (
-                  <p className="text-slate-400">{locale === 'ar' ? 'لا توجد فواتير مسجلة.' : 'No invoices recorded.'}</p>
-                ) : (
-                  patientInvoices.map((inv: any) => (
-                    <div key={inv.id} className="rounded-lg bg-white border border-slate-200 p-2.5 flex justify-between items-center">
-                      <div>
-                        <span className="font-mono font-bold text-slate-800">{inv.invoice_number}</span>
-                        <p className="text-slate-400">{inv.issue_date} · {inv.status}</p>
+              <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-4 space-y-3 text-xs md:col-span-2">
+                {(() => {
+                  const debitBal = patientBalances.filter(b => b.entry_type === 'legacy_debit').reduce((s, b) => s + Number(b.amount), 0)
+                    - patientBalances.filter(b => b.entry_type === 'debit_payment').reduce((s, b) => s + Number(b.amount), 0);
+                  const creditBal = patientBalances.filter(b => b.entry_type === 'legacy_credit').reduce((s, b) => s + Number(b.amount), 0)
+                    - patientBalances.filter(b => b.entry_type === 'credit_usage' || b.entry_type === 'credit_refund').reduce((s, b) => s + Number(b.amount), 0);
+                  const netLegacy = debitBal - creditBal;
+                  const invDue = patientInvoices.reduce((s, inv) => s + Number(inv.balance_due || 0), 0);
+                  const netTotal = invDue + netLegacy;
+                  const ar = locale === 'ar';
+                  return (
+                    <>
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <h4 className="font-black text-slate-900 flex items-center gap-1.5">
+                            <Wallet className="w-4 h-4 text-medicore-600" />
+                            <span>{ar ? `الحساب المالي والأرصدة السابقة والباقات (${patientInvoices.length} فاتورة · ${patientBalances.length} قيد)` : `Financial Account & Legacy Balances (${patientInvoices.length} invoices · ${patientBalances.length} entries)`}</span>
+                          </h4>
+                          <p className={`mt-1 text-xs font-black ${netTotal > 0 ? 'text-rose-700' : netTotal < 0 ? 'text-emerald-700' : 'text-slate-600'}`}>
+                            {netTotal > 0
+                              ? (ar ? `صافي الموقف: عليه مستحقات للعيادة ${netTotal.toFixed(2)} ${organization.default_currency}` : `Net Status: Owes Clinic ${netTotal.toFixed(2)} ${organization.default_currency}`)
+                              : netTotal < 0
+                                ? (ar ? `صافي الموقف: له رصيد / باقة مدفوعة ${Math.abs(netTotal).toFixed(2)} ${organization.default_currency}` : `Net Status: Prepaid Credit ${Math.abs(netTotal).toFixed(2)} ${organization.default_currency}`)
+                                : (ar ? 'صافي الموقف: الحساب خالص (0.00)' : 'Net Status: Settled (0.00)')}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setBalanceEntryType('legacy_debit');
+                            setBalanceAmount('');
+                            setBalanceDescription('');
+                            setBalanceRefNo('');
+                            setShowBalanceModal(true);
+                          }}
+                          className="inline-flex items-center gap-1.5 rounded-xl bg-medicore-600 px-3 py-2 text-xs font-bold text-white hover:bg-medicore-700"
+                        >
+                          <DollarSign className="w-3.5 h-3.5" />
+                          <span>{ar ? 'إضافة رصيد قديم / باقة / تسوية' : 'Add Legacy Balance / Settlement'}</span>
+                        </button>
                       </div>
-                      <div className="text-end font-bold">
-                        <p>{Number(inv.total_amount).toFixed(2)} {organization.default_currency}</p>
-                        {Number(inv.balance_due) > 0 && <p className="text-rose-600">{locale === 'ar' ? 'متبقي:' : 'Due:'} {Number(inv.balance_due).toFixed(2)}</p>}
+
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <div className="space-y-1.5">
+                          <p className="font-bold text-slate-700">{ar ? 'الفواتير المسجلة' : 'Invoices'}</p>
+                          {patientInvoices.length === 0 ? (
+                            <p className="text-slate-400">{ar ? 'لا توجد فواتير مسجلة.' : 'No invoices recorded.'}</p>
+                          ) : (
+                            patientInvoices.map((inv: any) => (
+                              <div key={inv.id} className="rounded-lg bg-white border border-slate-200 p-2.5 flex justify-between items-center gap-2">
+                                <div>
+                                  <span className="font-mono font-bold text-slate-800">{inv.invoice_number}</span>
+                                  <p className="text-slate-400">{inv.issue_date} · {getClinicalStatusLabel(inv.status, ar)}</p>
+                                </div>
+                                <div className="text-end font-bold">
+                                  <p>{Number(inv.total_amount).toFixed(2)} {organization.default_currency}</p>
+                                  {Number(inv.balance_due) > 0 && <p className="text-rose-600">{ar ? 'متبقي:' : 'Due:'} {Number(inv.balance_due).toFixed(2)}</p>}
+                                </div>
+                              </div>
+                            ))
+                          )}
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <p className="font-bold text-slate-700">{ar ? 'سجل الأرصدة القديمة والدفعات المقدمة' : 'Legacy Balances & Prepaid Sessions'}</p>
+                          {patientBalances.length === 0 ? (
+                            <p className="text-slate-400">{ar ? 'لا توجد قيود أرصدة سابقة أو دفعات مقدمة.' : 'No historical balance entries recorded.'}</p>
+                          ) : (
+                            patientBalances.map(entry => {
+                              const entryLabel = {
+                                legacy_debit: ar ? 'عليه (رصيد سابق)' : 'Owes (Legacy Debit)',
+                                legacy_credit: ar ? 'له (رصيد/باقة مسبقة)' : 'Credit (Prepaid/Package)',
+                                debit_payment: ar ? 'سداد مديونية سابقة' : 'Debt Settlement',
+                                credit_usage: ar ? 'خصم جلسة من الرصيد' : 'Prepaid Usage',
+                                credit_refund: ar ? 'رد رصيد للمريض' : 'Credit Refund',
+                              }[entry.entry_type];
+                              const badgeClass =
+                                entry.entry_type === 'legacy_debit'
+                                  ? 'bg-rose-100 text-rose-800'
+                                  : entry.entry_type === 'legacy_credit' || entry.entry_type === 'debit_payment'
+                                    ? 'bg-emerald-100 text-emerald-800'
+                                    : 'bg-amber-100 text-amber-800';
+                              return (
+                                <div key={entry.id} className="rounded-lg bg-white border border-slate-200 p-2.5 flex justify-between items-start gap-2">
+                                  <div>
+                                    <div className="flex flex-wrap items-center gap-1.5">
+                                      <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${badgeClass}`}>{entryLabel}</span>
+                                      {entry.payment_mode && (
+                                        <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-bold text-sky-800">
+                                          {getPaymentModeLabel(entry.payment_mode, ar)}
+                                        </span>
+                                      )}
+                                    </div>
+                                    <p className="font-semibold text-slate-800 mt-1">{entry.description}</p>
+                                    <p className="text-[11px] text-slate-400 font-mono">{entry.entry_date}{entry.reference_no ? ` · #${entry.reference_no}` : ''}</p>
+                                  </div>
+                                  <span className="font-mono font-black text-slate-900 shrink-0">{Number(entry.amount).toFixed(2)} {organization.default_currency}</span>
+                                </div>
+                              );
+                            })
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  ))
-                )}
+                    </>
+                  );
+                })()}
               </div>
             </div>
           </div>
@@ -830,6 +1033,69 @@ export const Patients: React.FC = () => {
                 </div>
               </div>
 
+              {/* Optional Legacy Balance & Medical History (for clinics migrating / physiotherapy packages) */}
+              <div className="rounded-2xl border border-amber-200 bg-amber-50/50 p-3.5 space-y-3">
+                <p className="text-xs font-black text-amber-950">
+                  {locale === 'ar' ? 'حساب مالي وملف قديم سابق (اختياري — مثلاً لحالات العلاج الطبيعي أو الأرصدة المرحلة)' : 'Legacy Balance & Historical File (Optional — e.g. Pre-existing debt or Prepaid sessions)'}
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                      {locale === 'ar' ? 'الحالة المالية السابقة' : 'Opening Balance Type'}
+                    </label>
+                    <select
+                      value={legacyBalanceType}
+                      onChange={e => setLegacyBalanceType(e.target.value as 'none' | 'legacy_debit' | 'legacy_credit')}
+                      className="w-full text-xs rounded-xl border border-slate-300 p-2 bg-white"
+                    >
+                      <option value="none">{locale === 'ar' ? 'لا يوجد رصيد سابق' : 'No opening balance'}</option>
+                      <option value="legacy_debit">{locale === 'ar' ? 'المريض عليه فلوس للعيادة' : 'Patient owes clinic'}</option>
+                      <option value="legacy_credit">{locale === 'ar' ? 'المريض له رصيد / باقة جلسات مدفوعة' : 'Patient has prepaid credit'}</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                      {locale === 'ar' ? 'المبلغ' : 'Amount'}
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      disabled={legacyBalanceType === 'none'}
+                      value={legacyBalanceAmount}
+                      onChange={e => setLegacyBalanceAmount(e.target.value)}
+                      placeholder="0.00"
+                      className="w-full text-xs rounded-xl border border-slate-300 p-2 bg-white font-mono disabled:opacity-50"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                      {locale === 'ar' ? 'بيان الرصيد السابق' : 'Balance Note'}
+                    </label>
+                    <input
+                      type="text"
+                      disabled={legacyBalanceType === 'none'}
+                      value={legacyBalanceNote}
+                      onChange={e => setLegacyBalanceNote(e.target.value)}
+                      placeholder={locale === 'ar' ? 'مثال: باقي 6 جلسات علاج طبيعي' : 'e.g. 6 prepaid physio sessions'}
+                      className="w-full text-xs rounded-xl border border-slate-300 p-2 bg-white disabled:opacity-50"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                    {locale === 'ar' ? 'ملخص الملف الطبي القديم (اختياري)' : 'Legacy Clinical Summary (Optional)'}
+                  </label>
+                  <input
+                    type="text"
+                    value={legacyMedicalSummary}
+                    onChange={e => setLegacyMedicalSummary(e.target.value)}
+                    placeholder={locale === 'ar' ? 'مثال: تاريخ علاج طبيعي بالعمود الفقري منذ 2024' : 'e.g. Lumbar rehab history since 2024'}
+                    className="w-full text-xs rounded-xl border border-slate-300 p-2 bg-white"
+                  />
+                </div>
+              </div>
+
               <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
                 <button
                   type="button"
@@ -976,6 +1242,105 @@ export const Patients: React.FC = () => {
               </button>
             </div>
           </div>
+        </div>
+      )}
+      {/* Add Patient Balance Entry / Settlement Modal */}
+      {showBalanceModal && selectedPatient && (
+        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <form onSubmit={recordBalanceEntry} className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-100 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h3 className="font-bold text-slate-900 text-sm flex items-center gap-2">
+                <Wallet className="w-5 h-5 text-medicore-600" />
+                <span>{locale === 'ar' ? 'قيد رصيد مريض / تسوية حساب قديم' : 'Record Patient Balance Entry'}</span>
+              </h3>
+              <button type="button" onClick={() => setShowBalanceModal(false)} className="text-slate-400 hover:text-slate-700"><X className="w-4 h-4" /></button>
+            </div>
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">{locale === 'ar' ? 'نوع الحركة *' : 'Entry Type *'}</label>
+                <select
+                  value={balanceEntryType}
+                  onChange={e => setBalanceEntryType(e.target.value as PatientBalanceEntryType)}
+                  className="w-full rounded-xl border border-slate-300 p-2.5 bg-white font-semibold"
+                >
+                  <option value="legacy_debit">{locale === 'ar' ? 'عليه فلوس (مديونية سابقة / قيد دين)' : 'Legacy Debit (Patient Owes Clinic)'}</option>
+                  <option value="legacy_credit">{locale === 'ar' ? 'له فلوس (رصيد سابق / دفعة أو باقة مقدمة)' : 'Legacy Credit (Prepaid / Clinic Owes Patient)'}</option>
+                  <option value="debit_payment">{locale === 'ar' ? 'تحصيل سداد مديونية (يضاف للخزينة)' : 'Collect Debt Payment (Adds to Cashbox)'}</option>
+                  <option value="credit_usage">{locale === 'ar' ? 'خصم جلسة/خدمة من الرصيد المسبق' : 'Use Prepaid Credit (Session Deduction)'}</option>
+                  <option value="credit_refund">{locale === 'ar' ? 'رد رصيد نقدي للمريض (يخصم من الخزينة)' : 'Refund Credit to Patient (Cashbox Outflow)'}</option>
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-2.5">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">{locale === 'ar' ? 'المبلغ *' : 'Amount *'}</label>
+                  <input
+                    required
+                    type="number"
+                    min="0.01"
+                    step="0.01"
+                    value={balanceAmount}
+                    onChange={e => setBalanceAmount(e.target.value)}
+                    placeholder="250"
+                    className="w-full rounded-xl border border-slate-300 p-2.5 font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">{locale === 'ar' ? 'رقم المرجع (اختياري)' : 'Reference (Optional)'}</label>
+                  <input
+                    type="text"
+                    value={balanceRefNo}
+                    onChange={e => setBalanceRefNo(e.target.value)}
+                    className="w-full rounded-xl border border-slate-300 p-2.5 font-mono"
+                  />
+                </div>
+              </div>
+              {(balanceEntryType === 'debit_payment' || balanceEntryType === 'credit_refund') && (
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">{locale === 'ar' ? 'وسيلة الدفع *' : 'Payment Method *'}</label>
+                    <select
+                      value={balancePaymentMode}
+                      onChange={e => setBalancePaymentMode(e.target.value)}
+                      className="w-full rounded-xl border border-slate-300 p-2.5 bg-white"
+                    >
+                      {(['cash', 'instapay', 'wallet', 'vodafone_cash', 'fawry', 'credit_card', 'bank_transfer'] as const).map(m => (
+                        <option key={m} value={m}>{getPaymentModeLabel(m, locale === 'ar')}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">{locale === 'ar' ? 'الخزينة' : 'Cashbox'}</label>
+                    <select
+                      value={balanceCashboxId}
+                      onChange={e => setBalanceCashboxId(e.target.value)}
+                      className="w-full rounded-xl border border-slate-300 p-2.5 bg-white"
+                    >
+                      {cashboxes.map(cb => (
+                        <option key={cb.id} value={cb.id}>{cb.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              )}
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">{locale === 'ar' ? 'البيان / الملاحظات *' : 'Description *'}</label>
+                <input
+                  required
+                  type="text"
+                  value={balanceDescription}
+                  onChange={e => setBalanceDescription(e.target.value)}
+                  placeholder={locale === 'ar' ? 'مثال: رصيد باقة جلسات علاج طبيعي أو تسوية حساب قديم' : 'e.g. Old physiotherapy balance or prepaid package'}
+                  className="w-full rounded-xl border border-slate-300 p-2.5"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 border-t pt-3">
+              <button type="button" onClick={() => setShowBalanceModal(false)} className="px-4 py-2 text-xs font-bold border rounded-xl">{t.common.cancel}</button>
+              <button type="submit" disabled={savingBalance} className="px-5 py-2 text-xs font-bold bg-medicore-600 text-white rounded-xl hover:bg-medicore-700 disabled:opacity-50">
+                {savingBalance ? '...' : (locale === 'ar' ? 'حفظ القيد المالي' : 'Save Balance Entry')}
+              </button>
+            </div>
+          </form>
         </div>
       )}
     </div>

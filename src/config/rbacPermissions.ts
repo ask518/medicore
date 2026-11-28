@@ -264,7 +264,7 @@ export const hasPermission = (
   // 7. Medical Director
   if (role === 'medical_director') {
     if (['patients', 'consultations', 'prescriptions', 'laboratory', 'radiology', 'reports'].includes(module)) return true;
-    if (['appointments', 'staff'].includes(module)) return ['view', 'approve'].includes(action);
+    if (['appointments', 'staff', 'hr'].includes(module)) return ['view', 'approve'].includes(action);
     return action === 'view';
   }
 
@@ -293,6 +293,7 @@ export const hasPermission = (
   if (role === 'nurse') {
     if (['patients', 'appointments'].includes(module)) return ['view', 'create', 'edit'].includes(action);
     if (['consultations'].includes(module)) return ['view', 'create'].includes(action); // record vitals & triage notes
+    if (module === 'laboratory') return ['view', 'edit'].includes(action); // specimen collection
     if (module === 'hr') return ['view', 'create'].includes(action);
     if (module === 'dashboard') return action === 'view';
     return false;
@@ -357,9 +358,17 @@ export const hasPermission = (
     return false;
   }
 
+  // 15c. Medical Records Officer
+  if (role === 'records_officer') {
+    if (module === 'patients') return ['view', 'create', 'edit', 'print', 'export'].includes(action);
+    if (module === 'hr') return ['view', 'create'].includes(action);
+    if (['dashboard', 'reports'].includes(module)) return action === 'view';
+    return false;
+  }
+
   // 16. Patient Portal
   if (role === 'patient') {
-    if (['appointments', 'prescriptions', 'laboratory'].includes(module)) return ['view', 'print'].includes(action);
+    if (['appointments', 'prescriptions', 'laboratory', 'radiology'].includes(module)) return ['view', 'print'].includes(action);
     return false;
   }
 

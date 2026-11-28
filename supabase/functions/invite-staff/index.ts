@@ -1,12 +1,23 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
-const appOrigin = Deno.env.get('APP_ORIGIN')?.replace(/\/+$/, '');
-const cors = {
-  'Access-Control-Allow-Origin': appOrigin || 'null',
+const configuredOrigins = (Deno.env.get('APP_ORIGIN') || '')
+  .split(',')
+  .map(o => o.trim().replace(/\/+$/, ''))
+  .filter(Boolean);
+
+const allowedOrigins = new Set<string>([
+  ...configuredOrigins,
+  'https://medicore-zeta-green.vercel.app',
+  'http://localhost:5180',
+  'http://127.0.0.1:5180',
+]);
+
+const buildCors = (origin: string) => ({
+  'Access-Control-Allow-Origin': origin,
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
   'Vary': 'Origin',
-};
+});
 
 const emailPattern = /^\S+@\S+\.\S+$/;
 const usernamePattern = /^[a-zA-Z0-9._-]{3,50}$/;
@@ -21,9 +32,12 @@ const isStrongPassword = (pw: string): boolean =>
   pw.length >= 12 && /[A-Za-z]/.test(pw) && /[0-9]/.test(pw);
 
 Deno.serve(async request => {
-  if (!appOrigin) return Response.json({ error: 'Staff invitation endpoint is not configured.' }, { status: 503 });
-  const requestOrigin = request.headers.get('origin');
-  if (requestOrigin && requestOrigin !== appOrigin) return Response.json({ error: 'Origin is not allowed.' }, { status: 403, headers: cors });
+  const rawOrigin = request.headers.get('origin')?.replace(/\/+$/, '') || '';
+  if (rawOrigin && !allowedOrigins.has(rawOrigin)) {
+    return Response.json({ error: 'Origin is not allowed.' }, { status: 403, headers: buildCors('null') });
+  }
+  const matchedOrigin = rawOrigin || configuredOrigins[0] || 'https://medicore-zeta-green.vercel.app';
+  const cors = buildCors(matchedOrigin);
   if (request.method === 'OPTIONS') return new Response('ok', { headers: cors });
   if (request.method !== 'POST') return Response.json({ error: 'Method not allowed' }, { status: 405, headers: cors });
 
@@ -115,7 +129,7 @@ Deno.serve(async request => {
       staffAuthUser = created.user;
       deliveryMode = 'direct_password';
     } else {
-      const redirectTo = `${appOrigin.replace(/\/$/, '')}/`;
+      const redirectTo = `${matchedOrigin}/`;
       const { data: invitation, error: inviteError } = await admin.auth.admin.inviteUserByEmail(email, {
         data: userMetadata,
         redirectTo,
@@ -146,8 +160,11 @@ Deno.serve(async request => {
     }, { onConflict: 'id' }).select('id').single();
 
     if (profileError || !profile) {
-      await admin.auth.admin.updateUserById(staffAuthUser.id, { ban_duration: '876000h' });
-      return Response.json({ error: 'Staff profile could not be provisioned; account was disabled.' }, { status: 500, headers: cors });
+      await admin.auth.admin.deleteUser(staffAuthUser.id).catch(() =>
+        admin.auth.admin.updateUserById(staffAuthUser.id, { ban_duration: '876000h' })
+      );
+      const errMsg = profileError?.message || 'Staff profile could not be provisioned; account was disabled.';
+      return Response.json({ error: errMsg }, { status: errMsg.includes('PLAN_LIMIT_REACHED') ? 400 : 500, headers: cors });
     }
 
     const { error: accessError } = await admin.from('user_branch_access').upsert({
@@ -156,7 +173,7 @@ Deno.serve(async request => {
     if (accessError) {
       await admin.from('users').update({ is_active: false }).eq('id', profile.id);
       await admin.auth.admin.updateUserById(profile.id, { ban_duration: '876000h' });
-      return Response.json({ error: 'Branch access could not be assigned; account was disabled.' }, { status: 500, headers: cors });
+      return Response.json({ error: accessError.message || 'Branch access could not be assigned; account was disabled.' }, { status: 500, headers: cors });
     }
 
     if (['doctor', 'assistant_doctor'].includes(role)) {
@@ -171,7 +188,8 @@ Deno.serve(async request => {
       if (doctorError) {
         await admin.from('users').update({ is_active: false }).eq('id', profile.id);
         await admin.auth.admin.updateUserById(profile.id, { ban_duration: '876000h' });
-        return Response.json({ error: 'Doctor profile could not be provisioned; account was disabled.' }, { status: 500, headers: cors });
+        const docMsg = doctorError.message || 'Doctor profile could not be provisioned; account was disabled.';
+        return Response.json({ error: docMsg }, { status: docMsg.includes('PLAN_LIMIT_REACHED') ? 400 : 500, headers: cors });
       }
     }
 

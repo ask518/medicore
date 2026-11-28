@@ -138,7 +138,12 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ defaultMode = 'login' })
           switchMode('login');
           setFeedback({ type: 'success', message: msg });
         } else {
-          const msg = res.error || (ar ? 'تعذر إنشاء الحساب.' : 'Could not create account.');
+          const raw = res.error || '';
+          const msg = ar && /invalid/i.test(raw)
+            ? 'البريد الإلكتروني غير صالح. استخدم بريداً حقيقياً بنطاق صحيح (مثل name@domain.com).'
+            : ar && /already registered/i.test(raw)
+            ? 'هذا البريد الإلكتروني مسجل مسبقاً. يمكنك تسجيل الدخول مباشرة.'
+            : (raw || (ar ? 'تعذر إنشاء الحساب.' : 'Could not create account.'));
           setFeedback({ type: 'error', message: msg });
           error(msg);
         }

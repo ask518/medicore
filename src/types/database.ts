@@ -18,6 +18,7 @@ export interface SubscriptionPlan {
   max_branches: number;
   max_doctors: number;
   max_users: number;
+  max_patients: number;
   max_storage_mb: number;
   has_laboratory: boolean;
   has_radiology: boolean;
@@ -551,7 +552,30 @@ export interface Service {
 }
 
 export type InvoiceStatus = 'draft' | 'unpaid' | 'partially_paid' | 'paid' | 'refunded' | 'void';
-export type PaymentMode = 'cash' | 'credit_card' | 'bank_transfer' | 'insurance' | 'vodafone_cash' | 'fawry';
+export type PaymentMode = 'cash' | 'instapay' | 'wallet' | 'vodafone_cash' | 'fawry' | 'credit_card' | 'bank_transfer' | 'insurance';
+
+export type PatientBalanceEntryType =
+  | 'legacy_debit'
+  | 'legacy_credit'
+  | 'debit_payment'
+  | 'credit_usage'
+  | 'credit_refund';
+
+export interface PatientBalanceEntry {
+  id: string;
+  organization_id: string;
+  branch_id?: string | null;
+  patient_id: string;
+  entry_type: PatientBalanceEntryType;
+  amount: number;
+  payment_mode?: PaymentMode | null;
+  description: string;
+  entry_date: string;
+  is_legacy: boolean;
+  reference_no?: string | null;
+  created_by?: string | null;
+  created_at: string;
+}
 
 export interface Cashbox {
   id: string;

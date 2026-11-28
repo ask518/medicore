@@ -3,9 +3,23 @@ import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { useToast } from '../../context/ToastContext';
 import { supabase } from '../../lib/supabase';
+import { formatQuotaErrorMessage } from '../../lib/facilityLabels';
+import { PlanQuotaNotice } from '../../components/common/PlanQuotaNotice';
 import { UploadCloud } from 'lucide-react';
 
-type PatientRow = { first_name_ar: string; last_name_ar: string; phone: string; date_of_birth: string; gender: 'male' | 'female'; blood_group?: string; national_id?: string };
+type PatientRow = {
+  first_name_ar: string;
+  last_name_ar: string;
+  phone: string;
+  date_of_birth: string;
+  gender: 'male' | 'female';
+  blood_group?: string;
+  national_id?: string;
+  opening_balance?: number;
+  balance_type?: 'legacy_debit' | 'legacy_credit';
+  balance_note?: string;
+  legacy_medical_note?: string;
+};
 function csvRows(text: string): string[][] {
   const out: string[][] = []; let cells: string[] = []; let value = ''; let quoted = false;
   for (let i = 0; i < text.length; i++) { const c = text[i]; if (c === '"' && quoted && text[i + 1] === '"') { value += '"'; i++; } else if (c === '"') quoted = !quoted; else if (c === ',' && !quoted) { cells.push(value.trim()); value = ''; } else if ((c === '\n' || c === '\r') && !quoted) { if (c === '\r' && text[i + 1] === '\n') i++; cells.push(value.trim()); if (cells.some(Boolean)) out.push(cells); cells = []; value = ''; } else value += c; }
@@ -23,18 +37,85 @@ export const DataMigration: React.FC = () => {
     if (matrix.length > 1000) { error(ar ? 'الحد الأقصى 1000 سجل.' : 'Maximum 1,000 records.'); return; }
     const at = (key: string, row: string[]) => row[headers.indexOf(key)] || '';
     const parsed: PatientRow[] = [];
-    for (const row of matrix) { const gender = at('gender', row).toLowerCase(); const dob = at('date_of_birth', row); const first = at('first_name_ar', row); const last = at('last_name_ar', row); const phone = at('phone', row); const date = new Date(`${dob}T00:00:00Z`); if (!first || !last || !phone || !/^\d{4}-\d{2}-\d{2}$/.test(dob) || Number.isNaN(date.getTime()) || date.toISOString().slice(0,10) !== dob || !['male','female'].includes(gender)) { error(ar ? 'صف غير صالح: راجع الأسماء والهاتف والتاريخ والنوع.' : 'Invalid row: check names, phone, date, and gender.'); return; } parsed.push({ first_name_ar:first, last_name_ar:last, phone, date_of_birth:dob, gender:gender as 'male'|'female', blood_group:at('blood_group',row) || undefined, national_id:at('national_id',row) || undefined }); }
+    for (const row of matrix) {
+      const gender = at('gender', row).toLowerCase();
+      const dob = at('date_of_birth', row);
+      const first = at('first_name_ar', row);
+      const last = at('last_name_ar', row);
+      const phone = at('phone', row);
+      const date = new Date(`${dob}T00:00:00Z`);
+      if (!first || !last || !phone || !/^\d{4}-\d{2}-\d{2}$/.test(dob) || Number.isNaN(date.getTime()) || date.toISOString().slice(0,10) !== dob || !['male','female'].includes(gender)) {
+        error(ar ? 'صف غير صالح: راجع الأسماء والهاتف والتاريخ والنوع.' : 'Invalid row: check names, phone, date, and gender.');
+        return;
+      }
+      const rawBal = Number(at('opening_balance', row) || 0);
+      const rawType = at('balance_type', row).toLowerCase();
+      const bType: 'legacy_debit' | 'legacy_credit' = ['credit', 'legacy_credit', 'prepaid', 'له'].includes(rawType) ? 'legacy_credit' : 'legacy_debit';
+      parsed.push({
+        first_name_ar: first,
+        last_name_ar: last,
+        phone,
+        date_of_birth: dob,
+        gender: gender as 'male' | 'female',
+        blood_group: at('blood_group', row) || undefined,
+        national_id: at('national_id', row) || undefined,
+        opening_balance: Number.isFinite(rawBal) && rawBal > 0 ? rawBal : undefined,
+        balance_type: Number.isFinite(rawBal) && rawBal > 0 ? bType : undefined,
+        balance_note: at('balance_note', row) || undefined,
+        legacy_medical_note: at('legacy_medical_note', row) || undefined,
+      });
+    }
     setRows(parsed); setFileName(file.name); setMessage('');
   };
   const importRows = async () => {
     if (!supabase || !organization || rows.length === 0) return;
     setBusy(true); const phones = [...new Set(rows.map(r => r.phone))]; const { data: found, error: duplicateError } = await supabase.from('patients').select('phone').eq('organization_id', organization.id).in('phone', phones);
     if (duplicateError) { setBusy(false); error(ar ? 'تعذر فحص التكرار.' : 'Could not check duplicates.'); return; }
-    const existing = new Set((found || []).map(r => r.phone)); const added = new Set<string>(); const ready = rows.filter(r => { if (existing.has(r.phone) || added.has(r.phone)) return false; added.add(r.phone); return true; }).map(r => ({ ...r, organization_id: organization.id, primary_branch_id: activeBranch?.id || null, mrn: `MRN-${new Date().getFullYear()}-${crypto.randomUUID().slice(0,8).toUpperCase()}`, blood_group: r.blood_group || 'unknown', is_active: true }));
-    const result = ready.length ? await supabase.from('patients').insert(ready) : { error: null };
-    setBusy(false); if (result.error) { error(ar ? 'فشل الحفظ في قاعدة البيانات.' : 'Database insert failed.'); return; }
-    const note = ar ? `تم حفظ ${ready.length} وتجاوز ${rows.length-ready.length} مكرر.` : `Saved ${ready.length}; skipped ${rows.length-ready.length} duplicates.`; setMessage(note); success(note); setRows([]);
+    const existing = new Set((found || []).map(r => r.phone)); const added = new Set<string>();
+    const readyRows = rows.filter(r => { if (existing.has(r.phone) || added.has(r.phone)) return false; added.add(r.phone); return true; });
+    const readyInsert = readyRows.map(r => ({
+      first_name_ar: r.first_name_ar, last_name_ar: r.last_name_ar, phone: r.phone,
+      date_of_birth: r.date_of_birth, gender: r.gender,
+      blood_group: r.blood_group || 'unknown', national_id: r.national_id || null,
+      organization_id: organization.id, primary_branch_id: activeBranch?.id || null,
+      mrn: `MRN-${new Date().getFullYear()}-${crypto.randomUUID().slice(0,8).toUpperCase()}`,
+      is_active: true,
+    }));
+    const result = readyInsert.length
+      ? await supabase.from('patients').insert(readyInsert).select('id,phone')
+      : { data: [] as { id: string; phone: string }[], error: null };
+    if (result.error) { setBusy(false); error(formatQuotaErrorMessage(result.error.message, ar) || (ar ? 'فشل الحفظ في قاعدة البيانات.' : 'Database insert failed.')); return; }
+    const createdByPhone = new Map((result.data || []).map(p => [p.phone, p.id]));
+    for (const r of readyRows) {
+      const pid = createdByPhone.get(r.phone);
+      if (!pid) continue;
+      if (r.opening_balance && r.opening_balance > 0) {
+        await supabase.rpc('record_patient_balance_entry', {
+          p_patient_id: pid,
+          p_entry_type: r.balance_type || 'legacy_debit',
+          p_amount: r.opening_balance,
+          p_description: r.balance_note || (ar ? 'رصيد قديم مستورد من CSV' : 'Imported legacy balance from CSV'),
+          p_entry_date: new Date().toISOString().slice(0, 10),
+          p_payment_mode: null,
+          p_cashbox_id: null,
+          p_is_legacy: true,
+          p_reference_no: null,
+        });
+      }
+      if (r.legacy_medical_note) {
+        await supabase.from('medical_histories').insert({
+          organization_id: organization.id,
+          patient_id: pid,
+          condition_type: 'chronic_disease',
+          condition_name: ar ? 'ملف طبي سابق (مستورد)' : 'Imported Legacy Summary',
+          notes: r.legacy_medical_note,
+          is_active: true,
+        });
+      }
+    }
+    setBusy(false);
+    const note = ar ? `تم حفظ ${readyRows.length} وتجاوز ${rows.length-readyRows.length} مكرر.` : `Saved ${readyRows.length}; skipped ${rows.length-readyRows.length} duplicates.`; setMessage(note); success(note); setRows([]);
   };
   if (!organization) return null;
-  return <main className="mx-auto max-w-4xl space-y-5" dir={ar?'rtl':'ltr'}><header><h1 className="text-2xl font-black"><UploadCloud className="me-2 inline h-6 w-6"/>{ar?'استيراد ملفات المرضى':'Import patient records'}</h1><p className="mt-2 text-sm text-slate-600">{ar?'استيراد CSV فعلي. المطلوب: first_name_ar,last_name_ar,phone,date_of_birth,gender (male/female). الاختياري: blood_group,national_id.':'Real CSV import. Required: first_name_ar,last_name_ar,phone,date_of_birth,gender (male/female). Optional: blood_group,national_id.'}</p></header><section className="space-y-4 rounded-2xl border bg-white p-6"><input type="file" accept=".csv,text/csv" onChange={e=>void selectFile(e.target.files?.[0])}/>{fileName&&<p className="text-xs text-slate-500">{fileName} · {rows.length} {ar?'سجل':'rows'}</p>}{rows.length>0&&<><div className="max-h-72 overflow-auto border"><table className="w-full text-xs"><thead><tr>{['first_name_ar','last_name_ar','phone','date_of_birth','gender'].map(h=><th key={h} className="p-2 text-start">{h}</th>)}</tr></thead><tbody>{rows.slice(0,20).map((r,i)=><tr key={i} className="border-t"><td className="p-2">{r.first_name_ar}</td><td>{r.last_name_ar}</td><td>{r.phone}</td><td>{r.date_of_birth}</td><td>{r.gender}</td></tr>)}</tbody></table></div><button disabled={busy} onClick={()=>void importRows()} className="rounded-xl bg-medicore-600 px-5 py-3 font-bold text-white disabled:opacity-50">{busy?(ar?'جار الحفظ':'Saving'):(ar?'تحقق واحفظ':'Validate and save')}</button></>}{message&&<p role="status" className="bg-emerald-50 p-3 text-sm text-emerald-800">{message}</p>}</section></main>;
+  return <main className="mx-auto max-w-4xl space-y-5" dir={ar?'rtl':'ltr'}><header><h1 className="text-2xl font-black"><UploadCloud className="me-2 inline h-6 w-6"/>{ar?'استيراد ملفات المرضى':'Import patient records'}</h1><p className="mt-2 text-sm text-slate-600">{ar?'استيراد CSV فعلي. المطلوب: first_name_ar,last_name_ar,phone,date_of_birth,gender (male/female). الاختياري: blood_group,national_id,opening_balance,balance_type (debit/credit),balance_note,legacy_medical_note.':'Real CSV import. Required: first_name_ar,last_name_ar,phone,date_of_birth,gender (male/female). Optional: blood_group,national_id,opening_balance,balance_type (debit/credit),balance_note,legacy_medical_note.'}</p></header><PlanQuotaNotice orgId={organization.id} ar={ar} scope="patients" /><section className="space-y-4 rounded-2xl border bg-white p-6"><input type="file" accept=".csv,text/csv" onChange={e=>void selectFile(e.target.files?.[0])}/>{fileName&&<p className="text-xs text-slate-500">{fileName} · {rows.length} {ar?'سجل':'rows'}</p>}{rows.length>0&&<><div className="max-h-72 overflow-auto border"><table className="w-full text-xs"><thead><tr>{['first_name_ar','last_name_ar','phone','date_of_birth','gender','opening_balance'].map(h=><th key={h} className="p-2 text-start">{h}</th>)}</tr></thead><tbody>{rows.slice(0,20).map((r,i)=><tr key={i} className="border-t"><td className="p-2">{r.first_name_ar}</td><td>{r.last_name_ar}</td><td>{r.phone}</td><td>{r.date_of_birth}</td><td>{r.gender}</td><td className="font-mono">{r.opening_balance ?? '—'}</td></tr>)}</tbody></table></div><button disabled={busy} onClick={()=>void importRows()} className="rounded-xl bg-medicore-600 px-5 py-3 font-bold text-white disabled:opacity-50">{busy?(ar?'جار الحفظ':'Saving'):(ar?'تحقق واحفظ':'Validate and save')}</button></>}{message&&<p role="status" className="bg-emerald-50 p-3 text-sm text-emerald-800">{message}</p>}</section></main>;
 };

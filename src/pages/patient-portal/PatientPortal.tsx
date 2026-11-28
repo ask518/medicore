@@ -10,6 +10,7 @@ import { useLanguage } from '../../context/LanguageContext';
 import { useToast } from '../../context/ToastContext';
 import { supabase } from '../../lib/supabase';
 import { createAttachmentSignedUrl } from '../../lib/attachments';
+import { formatDoctorDisplayName, getClinicalStatusLabel } from '../../lib/facilityLabels';
 import {
   Calendar,
   FileText,
@@ -510,7 +511,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({ activeTab = 'patie
                 <option value="">{ar ? 'اختر الطبيب...' : 'Select doctor...'}</option>
                 {branchDoctors.map((d) => (
                   <option key={d.id} value={d.id}>
-                    {ar ? d.name_ar : d.name_en} — {ar ? d.specialty_title_ar : d.specialty_title_en} ({Number(d.consultation_fee).toFixed(0)} {currency})
+                    {formatDoctorDisplayName(ar ? d.name_ar : d.name_en, ar)} — {ar ? d.specialty_title_ar : d.specialty_title_en} ({Number(d.consultation_fee).toFixed(0)} {currency})
                   </option>
                 ))}
               </select>
@@ -575,14 +576,14 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({ activeTab = 'patie
                     <div>
                       <span className="font-mono text-xs font-bold text-teal-700">{apt.appointment_number}</span>
                       <p className="mt-0.5 text-sm font-bold text-slate-900">
-                        {ar ? apt.doctor_name_ar : apt.doctor_name_en} — {ar ? apt.specialty_title_ar : apt.specialty_title_en}
+                        {formatDoctorDisplayName(ar ? apt.doctor_name_ar : apt.doctor_name_en, ar)} — {ar ? apt.specialty_title_ar : apt.specialty_title_en}
                       </p>
                       <p className="text-xs text-slate-500">
                         {apt.appointment_date} • {apt.start_time.slice(0, 5)} • {ar ? apt.branch_name_ar : apt.branch_name_en}
                       </p>
                     </div>
                     <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-700">
-                      {apt.status}
+                      {(t.appointments as Record<string, string>)[`status_${apt.status}`] || getClinicalStatusLabel(apt.status, ar)}
                     </span>
                   </div>
                 ))}
@@ -605,8 +606,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({ activeTab = 'patie
                   <div>
                     <span className="font-mono text-xs font-black text-emerald-700">{rx.prescription_number}</span>
                     <p className="text-sm font-bold text-slate-900">
-                      {ar ? 'د. ' : 'Dr. '}
-                      {ar ? rx.doctor_name_ar : rx.doctor_name_en} • {rx.issued_date}
+                      {formatDoctorDisplayName(ar ? rx.doctor_name_ar : rx.doctor_name_en, ar)} • {rx.issued_date}
                     </p>
                     {rx.diagnosis_summary && <p className="text-xs text-slate-500">{rx.diagnosis_summary}</p>}
                   </div>
@@ -649,7 +649,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({ activeTab = 'patie
                   <div key={lo.id} className="rounded-xl border border-slate-200 p-4 space-y-2">
                     <div className="flex items-center justify-between text-xs">
                       <span className="font-mono font-bold text-teal-700">{lo.order_number}</span>
-                      <span className="rounded-full bg-slate-100 px-2.5 py-0.5 font-bold">{lo.status}</span>
+                      <span className="rounded-full bg-slate-100 px-2.5 py-0.5 font-bold">{getClinicalStatusLabel(lo.status, ar)}</span>
                     </div>
                     {lo.results.length === 0 ? (
                       <p className="text-xs text-slate-500">
@@ -690,7 +690,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({ activeTab = 'patie
                       <span className="font-bold text-indigo-700">
                         {ro.order_number} • {ro.imaging_modality} — {ro.body_part}
                       </span>
-                      <span className="rounded-full bg-slate-100 px-2.5 py-0.5 font-bold">{ro.status}</span>
+                      <span className="rounded-full bg-slate-100 px-2.5 py-0.5 font-bold">{getClinicalStatusLabel(ro.status, ar)}</span>
                     </div>
                     {ro.report_approved_at ? (
                       <div className="rounded-lg bg-slate-50 p-3 text-xs space-y-1">
@@ -755,7 +755,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({ activeTab = 'patie
                         <td className="p-2.5">{Number(inv.total_amount).toFixed(2)} {currency}</td>
                         <td className="p-2.5 text-emerald-700">{Number(inv.paid_amount).toFixed(2)}</td>
                         <td className="p-2.5 font-bold text-rose-700">{Number(inv.balance_due).toFixed(2)}</td>
-                        <td className="p-2.5">{inv.status}</td>
+                        <td className="p-2.5">{getClinicalStatusLabel(inv.status, ar)}</td>
                       </tr>
                     ))}
                   </tbody>

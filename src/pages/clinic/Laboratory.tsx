@@ -8,6 +8,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { useToast } from '../../context/ToastContext';
 import { supabase } from '../../lib/supabase';
+import { getClinicalStatusLabel } from '../../lib/facilityLabels';
 import { createAttachmentSignedUrl, uploadMedicalAttachment } from '../../lib/attachments';
 import {
   Doctor,
@@ -759,7 +760,7 @@ export const Laboratory: React.FC = () => {
                               : 'bg-amber-100 text-amber-800'
                           }`}
                         >
-                          {order.status}
+                          {getClinicalStatusLabel(order.status, ar)}
                         </span>
                       </div>
                       <p className="mt-1.5 font-bold text-slate-900">{pName}</p>
@@ -767,7 +768,7 @@ export const Laboratory: React.FC = () => {
                         <span>MRN: {order.patient?.mrn || '-'}</span>
                         <span>
                           {ar ? `${order.results?.length || 0} تحاليل` : `${order.results?.length || 0} tests`} •{' '}
-                          <strong className={order.priority === 'stat' ? 'text-rose-600' : ''}>{order.priority.toUpperCase()}</strong>
+                          <strong className={order.priority === 'stat' ? 'text-rose-600' : ''}>{getClinicalStatusLabel(order.priority, ar)}</strong>
                         </span>
                       </div>
                     </button>
@@ -791,7 +792,7 @@ export const Laboratory: React.FC = () => {
                     <div className="flex items-center gap-2">
                       <span className="font-mono text-sm font-black text-teal-700">{selectedOrder.order_number}</span>
                       <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-bold text-slate-700">
-                        {selectedOrder.priority.toUpperCase()}
+                        {getClinicalStatusLabel(selectedOrder.priority, ar)}
                       </span>
                     </div>
                     <h2 className="mt-1 text-lg font-black text-slate-900">

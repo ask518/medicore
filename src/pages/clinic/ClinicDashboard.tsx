@@ -8,6 +8,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { useToast } from '../../context/ToastContext';
 import { supabase } from '../../lib/supabase';
+import { PlanQuotaNotice } from '../../components/common/PlanQuotaNotice';
 import { Appointment, Doctor } from '../../types/database';
 import { 
   Users, Calendar, Clock, DollarSign, Stethoscope, 
@@ -19,25 +20,26 @@ interface ClinicDashboardProps {
 }
 
 export const ClinicDashboard: React.FC<ClinicDashboardProps> = ({ onNavigate }) => {
-  const { organization, activeBranch, availableBranches } = useAuth();
+  const { organization, activeBranch, availableBranches, can } = useAuth();
   const { locale, t } = useLanguage();
   const { error: showError } = useToast();
   const [patientsCount,setPatientsCount]=useState(0);const [todayApts,setTodayApts]=useState<Appointment[]>([]);const [doctors,setDoctors]=useState<(Doctor&{user?:{name_ar:string;name_en:string}})[]>([]);const [totalCashboxBalance,setTotalCashboxBalance]=useState(0);const [todayRevenue,setTodayRevenue]=useState(0);const [loading,setLoading]=useState(true);
 
   const orgId = organization?.id || '';
   const currency = organization?.default_currency || 'EGP';
+  const canBillingView = can('billing', 'view');
   const todayStr = (()=>{const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;})();
   const load=useCallback(async()=>{if(!supabase||!orgId){setLoading(false);return;}setLoading(true);const todayStart=new Date(`${todayStr}T00:00:00`);const tomorrow=new Date(todayStart);tomorrow.setDate(tomorrow.getDate()+1);
     const [patientResult,appointmentResult,boxResult,paymentResult]=await Promise.all([
       supabase.from('patients').select('id',{count:'exact',head:true}).eq('organization_id',orgId).eq('is_active',true),
       (()=>{let q=supabase.from('appointments').select('*,patient:patients(id,mrn,first_name_ar,last_name_ar),doctor:doctors(id,specialty_title_ar,specialty_title_en,user:users(name_ar,name_en))').eq('organization_id',orgId).eq('appointment_date',todayStr).order('start_time');if(activeBranch?.id)q=q.eq('branch_id',activeBranch.id);return q;})(),
-      activeBranch?.id?supabase.from('cashboxes').select('current_balance').eq('organization_id',orgId).eq('branch_id',activeBranch.id).eq('is_active',true):Promise.resolve({data:[],error:null}),
-      (()=>{let q=supabase.from('payments').select('amount').eq('organization_id',orgId).gte('payment_date',todayStart.toISOString()).lt('payment_date',tomorrow.toISOString()).eq('is_reversal',false);if(activeBranch?.id)q=q.eq('branch_id',activeBranch.id);return q;})(),
+      canBillingView && activeBranch?.id?supabase.from('cashboxes').select('current_balance').eq('organization_id',orgId).eq('branch_id',activeBranch.id).eq('is_active',true):Promise.resolve({data:[],error:null}),
+      canBillingView?(()=>{let q=supabase.from('payments').select('amount').eq('organization_id',orgId).gte('payment_date',todayStart.toISOString()).lt('payment_date',tomorrow.toISOString()).eq('is_reversal',false);if(activeBranch?.id)q=q.eq('branch_id',activeBranch.id);return q;})():Promise.resolve({data:[],error:null}),
     ]);
     if(patientResult.error||appointmentResult.error||boxResult.error||paymentResult.error){setLoading(false);return;}
     setPatientsCount(patientResult.count||0);setTodayApts((appointmentResult.data||[]) as unknown as Appointment[]);setTotalCashboxBalance((boxResult.data||[]).reduce((s,row)=>s+Number(row.current_balance||0),0));setTodayRevenue((paymentResult.data||[]).reduce((s,row)=>s+Number(row.amount||0),0));
     if(activeBranch?.id){const {data:access}=await supabase.from('user_branch_access').select('user_id').eq('organization_id',orgId).eq('branch_id',activeBranch.id);const ids=(access||[]).map(x=>x.user_id);if(ids.length){const {data:docRows}=await supabase.from('doctors').select('*,user:users(name_ar,name_en)').eq('organization_id',orgId).eq('is_active',true).in('user_id',ids);setDoctors((docRows||[]) as unknown as typeof doctors);}else setDoctors([]);}else{setDoctors([]);}setLoading(false);
-  },[orgId,activeBranch?.id,todayStr]);
+  },[orgId,activeBranch?.id,todayStr,canBillingView]);
   useEffect(()=>{void load();},[load]);
 
   const waitingQueue = todayApts.filter(a => ['checked_in', 'waiting', 'in_consultation'].includes(a.status));
@@ -84,7 +86,8 @@ export const ClinicDashboard: React.FC<ClinicDashboardProps> = ({ onNavigate }) 
       </div>
 
       {/* Metric Cards Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <PlanQuotaNotice orgId={orgId} ar={locale === 'ar'} scope="all" />
+      <div className={`grid grid-cols-1 sm:grid-cols-2 ${canBillingView ? 'lg:grid-cols-4' : 'lg:grid-cols-3'} gap-4`}>
         {/* Total Patients */}
         <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs flex items-center justify-between">
           <div>
@@ -102,7 +105,7 @@ export const ClinicDashboard: React.FC<ClinicDashboardProps> = ({ onNavigate }) 
         {/* Today's Appointments */}
         <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs flex items-center justify-between">
           <div>
-            <p className="text-xs font-bold text-slate-500">{t.appointments.schedule} (اليوم)</p>
+            <p className="text-xs font-bold text-slate-500">{locale === 'ar' ? `${t.appointments.schedule} (اليوم)` : `Today's ${t.appointments.schedule}`}</p>
             <p className="text-2xl font-black text-slate-900 mt-1">{loading?'—':todayApts.length}</p>
             <p className="text-[11px] text-emerald-600 font-semibold mt-1">
               {completedToday} {t.appointments.status_completed}
@@ -128,6 +131,7 @@ export const ClinicDashboard: React.FC<ClinicDashboardProps> = ({ onNavigate }) 
         </div>
 
         {/* Total Cashbox Balance */}
+        {canBillingView && (
         <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs flex items-center justify-between">
           <div>
             <p className="text-xs font-bold text-slate-500">{t.billing.cashboxBalance}</p>
@@ -142,6 +146,7 @@ export const ClinicDashboard: React.FC<ClinicDashboardProps> = ({ onNavigate }) 
             <DollarSign className="w-6 h-6" />
           </div>
         </div>
+        )}
       </div>
 
       {/* Live Reception Queue & Quick Actions */}
@@ -196,7 +201,7 @@ export const ClinicDashboard: React.FC<ClinicDashboardProps> = ({ onNavigate }) 
                           <span className="text-xs font-normal text-slate-400 font-mono">({apt.patient?.mrn})</span>
                         </div>
                         <p className="text-xs text-slate-500">
-                          {locale === 'ar' ? 'الطبيب المعالج:' : 'Doctor:'} {apt.doctor?.specialty_title_ar || 'عيادة عامة'}
+                          {locale === 'ar' ? 'الطبيب المعالج:' : 'Doctor:'} {apt.doctor?.[locale === 'ar' ? 'specialty_title_ar' : 'specialty_title_en'] || (locale === 'ar' ? 'عيادة عامة' : 'General Clinic')}
                         </p>
                       </div>
                     </div>
@@ -243,7 +248,7 @@ export const ClinicDashboard: React.FC<ClinicDashboardProps> = ({ onNavigate }) 
                   </p>
                 </div>
                 <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
-                  {doc.slot_duration_minutes} دقيقة / كشف
+                  {doc.slot_duration_minutes} {locale === 'ar' ? 'دقيقة / كشف' : 'min / visit'}
                 </span>
               </div>
             ))}
