@@ -97,8 +97,9 @@ const AppContent: React.FC = () => {
       case 'radiology':
         return <Radiology />;
       case 'billing':
+        return <Billing initialTab="invoices" />;
       case 'commissions':
-        return <Billing />;
+        return <Billing initialTab="commissions" />;
       case 'insurance':
         return <Insurance />;
       case 'inventory':

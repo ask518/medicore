@@ -6,6 +6,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
+import { useToast } from '../../context/ToastContext';
 import { supabase } from '../../lib/supabase';
 import { Appointment, Doctor } from '../../types/database';
 import { 
@@ -20,9 +21,11 @@ interface ClinicDashboardProps {
 export const ClinicDashboard: React.FC<ClinicDashboardProps> = ({ onNavigate }) => {
   const { organization, activeBranch, availableBranches } = useAuth();
   const { locale, t } = useLanguage();
+  const { error: showError } = useToast();
   const [patientsCount,setPatientsCount]=useState(0);const [todayApts,setTodayApts]=useState<Appointment[]>([]);const [doctors,setDoctors]=useState<(Doctor&{user?:{name_ar:string;name_en:string}})[]>([]);const [totalCashboxBalance,setTotalCashboxBalance]=useState(0);const [todayRevenue,setTodayRevenue]=useState(0);const [loading,setLoading]=useState(true);
 
   const orgId = organization?.id || '';
+  const currency = organization?.default_currency || 'EGP';
   const todayStr = (()=>{const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;})();
   const load=useCallback(async()=>{if(!supabase||!orgId){setLoading(false);return;}setLoading(true);const todayStart=new Date(`${todayStr}T00:00:00`);const tomorrow=new Date(todayStart);tomorrow.setDate(tomorrow.getDate()+1);
     const [patientResult,appointmentResult,boxResult,paymentResult]=await Promise.all([
@@ -40,7 +43,7 @@ export const ClinicDashboard: React.FC<ClinicDashboardProps> = ({ onNavigate }) 
   const waitingQueue = todayApts.filter(a => ['checked_in', 'waiting', 'in_consultation'].includes(a.status));
   const completedToday = todayApts.filter(a => a.status === 'completed').length;
 
-  const handleStartConsultation=async(id:string)=>{if(!supabase)return;const {error}=await supabase.from('appointments').update({status:'in_consultation'}).eq('id',id).eq('organization_id',orgId);if(error)return;await load();onNavigate('consultation');};
+  const handleStartConsultation=async(id:string)=>{if(!supabase)return;const {error}=await supabase.from('appointments').update({status:'in_consultation'}).eq('id',id).eq('organization_id',orgId);if(error){showError(locale==='ar'?'تعذر بدء الكشف للموعد. تحقق من الصلاحية وحالة الموعد.':'Could not start consultation for this appointment.');return;}await load();onNavigate('consultation');};
 
   if (!organization) return null;
 
@@ -129,10 +132,10 @@ export const ClinicDashboard: React.FC<ClinicDashboardProps> = ({ onNavigate }) 
           <div>
             <p className="text-xs font-bold text-slate-500">{t.billing.cashboxBalance}</p>
             <p className="text-2xl font-black text-slate-900 mt-1">
-              {totalCashboxBalance.toLocaleString()} <span className="text-xs font-semibold text-slate-500">ج.م</span>
+              {totalCashboxBalance.toLocaleString()} <span className="text-xs font-semibold text-slate-500">{currency}</span>
             </p>
             <p className="text-[11px] text-emerald-600 font-semibold mt-1">
-              + {todayRevenue.toLocaleString()} ج.م {locale === 'ar' ? 'تحصيل اليوم' : 'Collected today'}
+              + {todayRevenue.toLocaleString()} {currency} {locale === 'ar' ? 'تحصيل اليوم' : 'Collected today'}
             </p>
           </div>
           <div className="w-12 h-12 rounded-2xl bg-teal-50 text-teal-600 flex items-center justify-center">

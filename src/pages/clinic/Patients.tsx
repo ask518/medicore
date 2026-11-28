@@ -65,6 +65,10 @@ export const Patients: React.FC = () => {
   const [waTemplate, setWaTemplate] = useState<NotificationTemplateKey>('follow_up_reminder');
   const [portalInviteInfo, setPortalInviteInfo] = useState<{ mrn: string; code: string; expiresAt: string } | null>(null);
   const [issuingPortalCode, setIssuingPortalCode] = useState(false);
+  const [patientLabs, setPatientLabs] = useState<any[]>([]);
+  const [patientRads, setPatientRads] = useState<any[]>([]);
+  const [patientSpecialtyFindings, setPatientSpecialtyFindings] = useState<any[]>([]);
+  const [patientInvoices, setPatientInvoices] = useState<any[]>([]);
   const [waMessage, setWaMessage] = useState('');
 
   const orgId = organization?.id || '';
@@ -99,13 +103,18 @@ export const Patients: React.FC = () => {
     const loadRecords = async () => {
       if (!supabase || !selectedPatient) {
         setPatientAllergies([]); setMedicalHistories([]); setConsultations([]); setPrescriptions([]);
+        setPatientLabs([]); setPatientRads([]); setPatientSpecialtyFindings([]); setPatientInvoices([]);
         setAllergyLoadError(false); setHistoryLoadError(false); return;
       }
-      const [allergies, histories, cons, rxs] = await Promise.all([
+      const [allergies, histories, cons, rxs, labs, rads, findings, invs] = await Promise.all([
         supabase.from('patient_allergies').select('*').eq('organization_id', orgId).eq('patient_id', selectedPatient.id),
         supabase.from('medical_histories').select('*').eq('organization_id', orgId).eq('patient_id', selectedPatient.id).eq('is_active', true).order('created_at', { ascending: false }),
-        supabase.from('consultations').select('*').eq('organization_id', orgId).eq('patient_id', selectedPatient.id).order('consultation_date', { ascending: false }),
-        supabase.from('prescriptions').select('*').eq('organization_id', orgId).eq('patient_id', selectedPatient.id).order('issued_date', { ascending: false }),
+        supabase.from('consultations').select('*,doctor:doctors(specialty_title_ar,user:users(name_ar,name_en))').eq('organization_id', orgId).eq('patient_id', selectedPatient.id).order('consultation_date', { ascending: false }),
+        supabase.from('prescriptions').select('*,doctor:doctors(specialty_title_ar,user:users(name_ar,name_en))').eq('organization_id', orgId).eq('patient_id', selectedPatient.id).order('issued_date', { ascending: false }),
+        supabase.from('laboratory_orders').select('*,results:laboratory_results(*,test:laboratory_tests(test_code,name_ar,name_en))').eq('organization_id', orgId).eq('patient_id', selectedPatient.id).order('created_at', { ascending: false }),
+        supabase.from('radiology_orders').select('*').eq('organization_id', orgId).eq('patient_id', selectedPatient.id).order('created_at', { ascending: false }),
+        supabase.from('anatomical_findings').select('*').eq('organization_id', orgId).eq('patient_id', selectedPatient.id).order('created_at', { ascending: false }).limit(20),
+        supabase.from('invoices').select('id,invoice_number,issue_date,total_amount,paid_amount,balance_due,status').eq('organization_id', orgId).eq('patient_id', selectedPatient.id).order('issue_date', { ascending: false }),
       ]);
       if (!active) return;
       setAllergyLoadError(Boolean(allergies.error));
@@ -113,6 +122,10 @@ export const Patients: React.FC = () => {
       setPatientAllergies(allergies.error ? [] : allergies.data || []);
       setMedicalHistories(histories.error ? [] : histories.data || []);
       setConsultations(cons.error ? [] : cons.data || []);
+      setPatientLabs(labs.error ? [] : labs.data || []);
+      setPatientRads(rads.error ? [] : rads.data || []);
+      setPatientSpecialtyFindings(findings.error ? [] : findings.data || []);
+      setPatientInvoices(invs.error ? [] : invs.data || []);
       const rxRows = rxs.error ? [] : rxs.data || [];
       if (!rxRows.length) { setPrescriptions([]); return; }
       const { data: items, error: itemsError } = await supabase.from('prescription_items').select('*').eq('organization_id', orgId).in('prescription_id', rxRows.map(rx => rx.id));
@@ -127,7 +140,7 @@ export const Patients: React.FC = () => {
   const saveAllergy = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!supabase || !organization || !selectedPatient || !allergen.trim()) return;
-    if (!['org_owner','general_manager','branch_manager','doctor','assistant_doctor','nurse'].includes(user?.role || '')) { error(locale==='ar'?'إضافة بيانات الحساسية متاحة للفريق السريري فقط.':'Only clinical staff can add allergy records.'); return; }
+    if (!['super_admin','org_owner','general_manager','medical_director','branch_manager','doctor','assistant_doctor','nurse'].includes(user?.role || '')) { error(locale==='ar'?'إضافة بيانات الحساسية متاحة للفريق السريري فقط.':'Only clinical staff can add allergy records.'); return; }
     setSavingClinicalData(true);
     const { data, error: insertError } = await supabase.from('patient_allergies').insert({ organization_id: organization.id, patient_id: selectedPatient.id, allergen: allergen.trim(), severity: allergySeverity, reaction: allergyReaction.trim() || null, diagnosed_date: new Date().toISOString().slice(0,10) }).select('*').single();
     setSavingClinicalData(false);
@@ -138,7 +151,7 @@ export const Patients: React.FC = () => {
   const saveMedicalHistory = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!supabase || !organization || !selectedPatient || !conditionName.trim()) return;
-    if (!['org_owner','general_manager','branch_manager','doctor','assistant_doctor','nurse'].includes(user?.role || '')) { error(locale==='ar'?'إضافة التاريخ المرضي متاحة للفريق السريري فقط.':'Only clinical staff can add medical history.'); return; }
+    if (!['super_admin','org_owner','general_manager','medical_director','branch_manager','doctor','assistant_doctor','nurse'].includes(user?.role || '')) { error(locale==='ar'?'إضافة التاريخ المرضي متاحة للفريق السريري فقط.':'Only clinical staff can add medical history.'); return; }
     setSavingClinicalData(true);
     const { data, error: insertError } = await supabase.from('medical_histories').insert({ organization_id: organization.id, patient_id: selectedPatient.id, condition_name: conditionName.trim(), condition_type: conditionType, notes: conditionNotes.trim() || null, onset_year: conditionYear ? Number(conditionYear) : null, is_active: true }).select('*').single();
     setSavingClinicalData(false);
@@ -428,7 +441,7 @@ export const Patients: React.FC = () => {
               {patientAllergies.length > 0 && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-200 text-rose-900 uppercase">{locale === 'ar' ? 'مُسجل' : 'Recorded'}</span>}
             </div>
 
-            {['org_owner','general_manager','branch_manager','doctor','assistant_doctor','nurse'].includes(user?.role || '') && <div className="grid gap-4 lg:grid-cols-2">
+            {['super_admin','org_owner','general_manager','medical_director','branch_manager','doctor','assistant_doctor','nurse'].includes(user?.role || '') && <div className="grid gap-4 lg:grid-cols-2">
               <form onSubmit={saveAllergy} className="space-y-3 rounded-xl border border-rose-200 bg-white p-4">
                 <h3 className="text-sm font-black text-rose-900">{locale==='ar'?'إضافة حساسية':'Record an allergy'}</h3>
                 <label className="block text-xs font-bold">{locale==='ar'?'مسبب الحساسية':'Allergen'}<input required maxLength={255} value={allergen} onChange={e=>setAllergen(e.target.value)} className="mt-1 w-full rounded-lg border p-2.5"/></label>
@@ -517,7 +530,7 @@ export const Patients: React.FC = () => {
                 <div key={rx.id} className="p-3 rounded-xl border border-slate-200 bg-teal-50/20 text-xs space-y-1.5">
                   <div className="flex items-center justify-between font-bold text-slate-800">
                     <span>{rx.prescription_number} ({rx.issued_date})</span>
-                    <span className="text-[11px] text-teal-700">د. {rx.doctor?.user?.name_ar}</span>
+                    <span className="text-[11px] text-teal-700">د. {rx.doctor?.user?.name_ar || '-'}</span>
                   </div>
                   <div className="space-y-1">
                     {rx.items?.map((it: any) => (
@@ -528,6 +541,85 @@ export const Patients: React.FC = () => {
                   </div>
                 </div>
               ))}
+            </div>
+
+            {/* Linked Lab, Radiology, 3D Specialty & Billing Records */}
+            <div className="grid gap-4 md:grid-cols-2 pt-2">
+              <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-4 space-y-2 text-xs">
+                <h4 className="font-black text-slate-900">{locale === 'ar' ? `التحاليل الطبية (${patientLabs.length})` : `Laboratory (${patientLabs.length})`}</h4>
+                {patientLabs.length === 0 ? (
+                  <p className="text-slate-400">{locale === 'ar' ? 'لا توجد طلبات تحاليل.' : 'No lab orders.'}</p>
+                ) : (
+                  patientLabs.map((lo: any) => (
+                    <div key={lo.id} className="rounded-lg bg-white border border-slate-200 p-2.5 space-y-1">
+                      <div className="flex justify-between font-bold">
+                        <span className="font-mono text-teal-700">{lo.order_number}</span>
+                        <span>{lo.status}</span>
+                      </div>
+                      {(lo.results || []).map((r: any) => (
+                        <p key={r.id} className={r.is_abnormal ? 'text-rose-700 font-bold' : 'text-slate-600'}>
+                          • {r.test?.name_ar || r.test?.test_code}: {r.result_value} {r.unit || ''}
+                        </p>
+                      ))}
+                    </div>
+                  ))
+                )}
+              </div>
+
+              <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-4 space-y-2 text-xs">
+                <h4 className="font-black text-slate-900">{locale === 'ar' ? `الأشعة والتصوير (${patientRads.length})` : `Radiology (${patientRads.length})`}</h4>
+                {patientRads.length === 0 ? (
+                  <p className="text-slate-400">{locale === 'ar' ? 'لا توجد طلبات أشعة.' : 'No radiology orders.'}</p>
+                ) : (
+                  patientRads.map((ro: any) => (
+                    <div key={ro.id} className="rounded-lg bg-white border border-slate-200 p-2.5 space-y-1">
+                      <div className="flex justify-between font-bold">
+                        <span className="font-mono text-indigo-700">{ro.order_number}</span>
+                        <span>{ro.status}</span>
+                      </div>
+                      <p className="text-slate-700">{ro.imaging_modality} — {ro.body_part}</p>
+                      {ro.conclusion && <p className="text-indigo-900 font-semibold">{ro.conclusion}</p>}
+                    </div>
+                  ))
+                )}
+              </div>
+
+              <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-4 space-y-2 text-xs">
+                <h4 className="font-black text-slate-900">{locale === 'ar' ? `فحوصات التخصصات 3D (${patientSpecialtyFindings.length})` : `3D Specialty Exams (${patientSpecialtyFindings.length})`}</h4>
+                {patientSpecialtyFindings.length === 0 ? (
+                  <p className="text-slate-400">{locale === 'ar' ? 'لا توجد فحوصات تخصصية.' : 'No specialty exams.'}</p>
+                ) : (
+                  patientSpecialtyFindings.map((sf: any) => (
+                    <div key={sf.id} className="rounded-lg bg-white border border-slate-200 p-2.5">
+                      <div className="flex justify-between font-bold">
+                        <span className="text-teal-700">{sf.module_type}</span>
+                        <span className="text-slate-400">{sf.created_at?.slice(0, 10)}</span>
+                      </div>
+                      <p className="text-slate-600">{sf.finding_type}{sf.annotation_text ? ` — ${sf.annotation_text}` : ''}</p>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-4 space-y-2 text-xs">
+                <h4 className="font-black text-slate-900">{locale === 'ar' ? `الفواتير والحسابات (${patientInvoices.length})` : `Invoices & Balances (${patientInvoices.length})`}</h4>
+                {patientInvoices.length === 0 ? (
+                  <p className="text-slate-400">{locale === 'ar' ? 'لا توجد فواتير مسجلة.' : 'No invoices recorded.'}</p>
+                ) : (
+                  patientInvoices.map((inv: any) => (
+                    <div key={inv.id} className="rounded-lg bg-white border border-slate-200 p-2.5 flex justify-between items-center">
+                      <div>
+                        <span className="font-mono font-bold text-slate-800">{inv.invoice_number}</span>
+                        <p className="text-slate-400">{inv.issue_date} · {inv.status}</p>
+                      </div>
+                      <div className="text-end font-bold">
+                        <p>{Number(inv.total_amount).toFixed(2)} {organization.default_currency}</p>
+                        {Number(inv.balance_due) > 0 && <p className="text-rose-600">{locale === 'ar' ? 'متبقي:' : 'Due:'} {Number(inv.balance_due).toFixed(2)}</p>}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
           </div>
         )}

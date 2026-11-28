@@ -7,20 +7,24 @@ import React, { useEffect, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { useToast } from '../../context/ToastContext';
-import { ShieldCheck, Lock, Mail, User, Eye, EyeOff, ArrowRight } from 'lucide-react';
+import { ShieldCheck, Lock, Mail, User, Eye, EyeOff, ArrowRight, AlertCircle } from 'lucide-react';
+
+type AuthMode = 'login' | 'register' | 'reset' | 'updatePassword';
 
 interface AuthScreenProps {
-  defaultMode?: 'login' | 'register' | 'reset' | 'updatePassword';
+  defaultMode?: AuthMode;
 }
 
-export const AuthScreen: React.FC<AuthScreenProps> = ({
-  defaultMode = 'login',
-}) => {
+const isStrongPassword = (value: string): boolean =>
+  value.length >= 12 && /[A-Za-z]/.test(value) && /[0-9]/.test(value);
+
+export const AuthScreen: React.FC<AuthScreenProps> = ({ defaultMode = 'login' }) => {
   const { login, register, resetPassword, updatePassword } = useAuth();
   const { locale, dir } = useLanguage();
   const { success, error, info } = useToast();
+  const ar = locale === 'ar';
 
-  const [mode, setMode] = useState<'login' | 'register' | 'reset' | 'updatePassword'>(defaultMode);
+  const [mode, setMode] = useState<AuthMode>(defaultMode);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -28,62 +32,156 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
   const [nameEn, setNameEn] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [feedback, setFeedback] = useState<{ type: 'error' | 'info' | 'success'; message: string } | null>(null);
 
-  useEffect(() => setMode(defaultMode), [defaultMode]);
+  useEffect(() => {
+    setMode(defaultMode);
+    setPassword('');
+    setConfirmPassword('');
+    setShowPassword(false);
+    setFeedback(null);
+  }, [defaultMode]);
+
+  const switchMode = (nextMode: AuthMode) => {
+    setMode(nextMode);
+    setPassword('');
+    setConfirmPassword('');
+    setShowPassword(false);
+    setFeedback(null);
+    if (nextMode !== 'login' && !email.includes('@')) {
+      setEmail('');
+    }
+  };
+
+  const modeCopy: Record<AuthMode, { title: string; subtitle: string; submit: string }> = {
+    login: {
+      title: ar ? 'تسجيل الدخول للمنصة' : 'Sign In to MEDICORE',
+      subtitle: ar ? 'ادخل إلى حسابك للمتابعة' : 'Sign in to continue to your account',
+      submit: ar ? 'دخول المنظومة' : 'Sign In',
+    },
+    register: {
+      title: ar ? 'إنشاء حساب جديد' : 'Create New Account',
+      subtitle: ar ? 'أنشئ حساباً موثقاً بالبريد الإلكتروني ثم سجّل الدخول' : 'Create a verified account with your email',
+      submit: ar ? 'تأكيد التسجيل السحابي' : 'Register Account',
+    },
+    reset: {
+      title: ar ? 'استعادة كلمة المرور' : 'Reset Password',
+      subtitle: ar ? 'أدخل بريدك الإلكتروني لإرسال رابط استعادة آمن' : 'Enter your email to receive a secure reset link',
+      submit: ar ? 'إرسال رابط الاستعادة' : 'Send Reset Link',
+    },
+    updatePassword: {
+      title: ar ? 'إنشاء كلمة مرور جديدة' : 'Set a New Password',
+      subtitle: ar ? 'اختر كلمة مرور جديدة قوية لحسابك' : 'Choose a strong new password for your account',
+      submit: ar ? 'حفظ كلمة المرور الجديدة' : 'Save new password',
+    },
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsLoading(true);
+    setFeedback(null);
 
+    const trimmedIdentifier = email.trim();
+    if (mode !== 'updatePassword' && !trimmedIdentifier) {
+      const msg = ar ? 'أدخل البريد الإلكتروني أو اسم المستخدم.' : 'Enter your email or username.';
+      setFeedback({ type: 'error', message: msg });
+      error(msg);
+      return;
+    }
+
+    if (mode === 'register' && !nameAr.trim()) {
+      const msg = ar ? 'أدخل الاسم الكامل بالعربية.' : 'Enter your full Arabic name.';
+      setFeedback({ type: 'error', message: msg });
+      error(msg);
+      return;
+    }
+
+    if ((mode === 'register' || mode === 'updatePassword') && !isStrongPassword(password)) {
+      const msg = ar
+        ? 'استخدم 12 خانة على الأقل مع حرف لاتيني ورقم.'
+        : 'Use at least 12 characters, including a letter and a number.';
+      setFeedback({ type: 'error', message: msg });
+      error(msg);
+      return;
+    }
+
+    if ((mode === 'register' || mode === 'updatePassword') && password !== confirmPassword) {
+      const msg = ar ? 'كلمتا المرور غير متطابقتين.' : 'Passwords do not match.';
+      setFeedback({ type: 'error', message: msg });
+      error(msg);
+      return;
+    }
+
+    setIsLoading(true);
     try {
       if (mode === 'login') {
-        const res = await login(email, password);
-        if (res.success) {
-          success(locale === 'ar' ? 'تم تسجيل الدخول بنجاح' : 'Signed in successfully');
-        } else {
-          error(res.error || (locale === 'ar' ? 'بيانات الدخول غير صحيحة' : 'Invalid credentials'));
-        }
-      } else if (mode === 'register' || mode === 'updatePassword') {
-        if (password.length < 12 || !/[A-Za-z]/.test(password) || !/[0-9]/.test(password)) {
-          error(locale === 'ar' ? 'استخدم 12 خانة على الأقل مع حرف لاتيني ورقم.' : 'Use at least 12 characters, including a letter and a number.');
+        if (!password) {
+          const msg = ar ? 'أدخل كلمة المرور.' : 'Enter your password.';
+          setFeedback({ type: 'error', message: msg });
+          error(msg);
           return;
         }
-        if (password !== confirmPassword) {
-          error(locale === 'ar' ? 'كلمتا المرور غير متطابقتين' : 'Passwords do not match');
-          return;
-        }
-
-        const res = mode === 'register'
-          ? await register(email, password, nameAr, nameEn)
-          : await updatePassword(password);
+        const res = await login(trimmedIdentifier, password);
         if (res.success) {
-          if (mode === 'register') {
-            success(locale === 'ar' ? 'تم إنشاء الحساب. أكّد بريدك الإلكتروني ثم سجّل الدخول لإعداد منشأتك.' : 'Account created. Verify your email, then sign in to set up your facility.');
-            setMode('login');
-          } else {
-            success(locale === 'ar' ? 'تم تحديث كلمة المرور بنجاح.' : 'Your password has been updated.');
-          }
+          success(ar ? 'تم تسجيل الدخول بنجاح' : 'Signed in successfully');
         } else {
-          error(res.error || (locale === 'ar' ? 'تعذر تحديث الحساب' : 'Could not update the account'));
+          const msg = res.error || (ar ? 'بيانات الدخول غير صحيحة.' : 'Invalid credentials.');
+          setFeedback({ type: 'error', message: msg });
+          error(msg);
+        }
+      } else if (mode === 'register') {
+        const res = await register(trimmedIdentifier, password, nameAr.trim(), nameEn.trim() || undefined);
+        if (res.success) {
+          const msg = ar
+            ? 'تم إنشاء الحساب. أكّد بريدك الإلكتروني ثم سجّل الدخول.'
+            : 'Account created. Verify your email, then sign in.';
+          success(msg);
+          switchMode('login');
+          setFeedback({ type: 'success', message: msg });
+        } else {
+          const msg = res.error || (ar ? 'تعذر إنشاء الحساب.' : 'Could not create account.');
+          setFeedback({ type: 'error', message: msg });
+          error(msg);
+        }
+      } else if (mode === 'updatePassword') {
+        const res = await updatePassword(password);
+        if (res.success) {
+          const msg = ar ? 'تم تحديث كلمة المرور بنجاح.' : 'Your password has been updated.';
+          success(msg);
+          setFeedback({ type: 'success', message: msg });
+        } else {
+          const msg = res.error || (ar ? 'تعذر تحديث كلمة المرور.' : 'Could not update password.');
+          setFeedback({ type: 'error', message: msg });
+          error(msg);
         }
       } else if (mode === 'reset') {
-        const res = await resetPassword(email);
+        const res = await resetPassword(trimmedIdentifier);
         if (res.success) {
-          info(locale === 'ar' ? 'تم إرسال رابط استعادة كلمة المرور إلى بريدك الإلكتروني.' : 'Password reset link sent to your email.');
-          setMode('login');
+          const msg = ar
+            ? 'تم إرسال رابط استعادة كلمة المرور إلى بريدك الإلكتروني.'
+            : 'Password reset link sent to your email.';
+          info(msg);
+          switchMode('login');
+          setFeedback({ type: 'info', message: msg });
         } else {
-          error(res.error || (locale === 'ar' ? 'فشل إرسال رابط الاستعادة' : 'Reset request failed'));
+          const msg = res.error || (ar ? 'فشل إرسال رابط الاستعادة.' : 'Reset request failed.');
+          setFeedback({ type: 'error', message: msg });
+          error(msg);
         }
       }
     } catch (err: unknown) {
-      error(err instanceof Error ? err.message : 'Authentication error');
+      const msg = err instanceof Error ? err.message : 'Authentication error';
+      setFeedback({ type: 'error', message: msg });
+      error(msg);
     } finally {
       setIsLoading(false);
     }
   };
 
   return (
-    <main dir={dir} className="relative flex min-h-screen w-full flex-col items-center justify-center gap-6 overflow-hidden bg-gradient-to-br from-slate-50 via-white to-sky-100 px-4 py-10 sm:gap-8">
+    <main
+      dir={dir}
+      className="relative flex min-h-screen w-full flex-col items-center justify-center gap-6 overflow-hidden bg-gradient-to-br from-slate-50 via-white to-sky-100 px-4 py-10 sm:gap-8"
+    >
       <div aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden">
         <div className="absolute -start-24 -top-24 h-72 w-72 rounded-full bg-sky-200/40 blur-3xl" />
         <div className="absolute -bottom-28 -end-20 h-80 w-80 rounded-full bg-indigo-200/35 blur-3xl" />
@@ -95,157 +193,182 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
         </div>
         <div className="text-start">
           <div className="text-xl font-black tracking-tight text-slate-900">MEDICORE</div>
-          <div className="text-xs font-medium text-slate-500">{locale === 'ar' ? 'منصة الرعاية الطبية السحابية' : 'Cloud Healthcare Platform'}</div>
+          <div className="text-xs font-medium text-slate-500">
+            {ar ? 'منصة الرعاية الطبية السحابية' : 'Cloud Healthcare Platform'}
+          </div>
         </div>
       </header>
 
-      <section aria-labelledby="auth-screen-title" className="relative z-10 w-full max-w-md rounded-3xl border border-white/80 bg-white/95 p-6 shadow-2xl shadow-slate-900/10 backdrop-blur sm:p-8">
-        {/* Header */}
+      <section
+        aria-labelledby="auth-screen-title"
+        className="relative z-10 w-full max-w-md rounded-3xl border border-white/80 bg-white/95 p-6 shadow-2xl shadow-slate-900/10 backdrop-blur sm:p-8"
+      >
         <div className="flex items-center gap-3 border-b border-slate-100 pb-4">
-          <div className="flex items-center gap-2.5">
-            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-purple-50 text-purple-700">
-              <ShieldCheck className="h-5 w-5" />
-            </div>
-            <div>
-              <h1 id="auth-screen-title" className="text-base font-black text-slate-900">
-                {mode === 'login' && (locale === 'ar' ? 'تسجيل الدخول للمنصة' : 'Sign In to MEDICORE')}
-                {mode === 'register' && (locale === 'ar' ? 'إنشاء حساب جديد' : 'Create New Account')}
-                {mode === 'reset' && (locale === 'ar' ? 'استعادة كلمة المرور' : 'Reset Password')}
-                {mode === 'updatePassword' && (locale === 'ar' ? 'إنشاء كلمة مرور جديدة' : 'Set a New Password')}
-              </h1>
-              <p className="mt-1 text-xs text-slate-500">
-                {mode === 'updatePassword'
-                  ? (locale === 'ar' ? 'اختر كلمة مرور جديدة لحسابك' : 'Choose a new password for your account')
-                  : (locale === 'ar' ? 'ادخل إلى حسابك للمتابعة' : 'Sign in to continue to your account')}
-              </p>
-            </div>
+          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-purple-50 text-purple-700">
+            <ShieldCheck className="h-5 w-5" />
+          </div>
+          <div>
+            <h1 id="auth-screen-title" className="text-base font-black text-slate-900">
+              {modeCopy[mode].title}
+            </h1>
+            <p className="mt-1 text-xs text-slate-500">{modeCopy[mode].subtitle}</p>
           </div>
         </div>
 
-        {/* Mode Switch Tabs */}
-        {mode !== 'updatePassword' && <div className="grid grid-cols-3 gap-1 p-1 bg-slate-100 rounded-xl mb-4 text-xs font-bold">
-          <button
-            type="button"
-            onClick={() => setMode('login')}
-            className={`py-1.5 rounded-lg transition-all ${
-              mode === 'login' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-500 hover:text-slate-800'
-            }`}
-          >
-            {locale === 'ar' ? 'دخول' : 'Sign In'}
-          </button>
-          <button
-            type="button"
-            onClick={() => setMode('register')}
-            className={`py-1.5 rounded-lg transition-all ${
-              mode === 'register' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-500 hover:text-slate-800'
-            }`}
-          >
-            {locale === 'ar' ? 'تسجيل جديد' : 'Register'}
-          </button>
-          <button
-            type="button"
-            onClick={() => setMode('reset')}
-            className={`py-1.5 rounded-lg transition-all ${
-              mode === 'reset' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-500 hover:text-slate-800'
-            }`}
-          >
-            {locale === 'ar' ? 'استعادة' : 'Reset'}
-          </button>
-        </div>}
+        {mode !== 'updatePassword' && (
+          <div className="mt-4 mb-4 grid grid-cols-3 gap-1 rounded-xl bg-slate-100 p-1 text-xs font-bold">
+            {(
+              [
+                ['login', ar ? 'دخول' : 'Sign In'],
+                ['register', ar ? 'تسجيل جديد' : 'Register'],
+                ['reset', ar ? 'استعادة' : 'Reset'],
+              ] as const
+            ).map(([tabMode, label]) => (
+              <button
+                key={tabMode}
+                type="button"
+                onClick={() => switchMode(tabMode)}
+                className={`rounded-lg py-1.5 transition-all ${
+                  mode === tabMode ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
 
-        {/* Form */}
+        {feedback && (
+          <div
+            role="alert"
+            className={`mb-4 flex items-center gap-2 rounded-xl border px-3 py-2.5 text-xs font-bold ${
+              feedback.type === 'error'
+                ? 'border-rose-200 bg-rose-50 text-rose-800'
+                : feedback.type === 'success'
+                ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                : 'border-sky-200 bg-sky-50 text-sky-800'
+            }`}
+          >
+            <AlertCircle className="h-4 w-4 shrink-0" />
+            <span>{feedback.message}</span>
+          </div>
+        )}
+
         <form onSubmit={handleSubmit} className="space-y-3.5">
           {mode === 'register' && (
             <>
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  {locale === 'ar' ? 'الاسم بالكامل (بالعربية) *' : 'Full Name (Arabic) *'}
+                <label htmlFor="auth-name-ar" className="mb-1 block text-xs font-bold text-slate-700">
+                  {ar ? 'الاسم بالكامل (بالعربية) *' : 'Full Name (Arabic) *'}
                 </label>
                 <div className="relative">
-                  <User className="w-4 h-4 text-slate-400 absolute start-3 top-1/2 -translate-y-1/2" />
+                  <User className="absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                   <input
+                    id="auth-name-ar"
+                    name="name_ar"
                     type="text"
+                    autoComplete="name"
                     required
                     value={nameAr}
-                    onChange={e => setNameAr(e.target.value)}
+                    onChange={(e) => setNameAr(e.target.value)}
                     placeholder="مثال: د. إبراهيم خليل"
-                    className="w-full text-xs rounded-xl border border-slate-200 ps-9 pe-3 py-2.5 focus:border-medicore-500 focus:outline-none"
+                    className="w-full rounded-xl border border-slate-200 py-2.5 pe-3 ps-9 text-xs focus:border-medicore-500 focus:outline-none"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  {locale === 'ar' ? 'الاسم بالإنجليزية' : 'Full Name (English)'}
+                <label htmlFor="auth-name-en" className="mb-1 block text-xs font-bold text-slate-700">
+                  {ar ? 'الاسم بالإنجليزية' : 'Full Name (English)'}
                 </label>
                 <div className="relative">
-                  <User className="w-4 h-4 text-slate-400 absolute start-3 top-1/2 -translate-y-1/2" />
+                  <User className="absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                   <input
+                    id="auth-name-en"
+                    name="name_en"
                     type="text"
+                    autoComplete="name"
                     value={nameEn}
-                    onChange={e => setNameEn(e.target.value)}
+                    onChange={(e) => setNameEn(e.target.value)}
                     placeholder="e.g. Dr. Ibrahim Khalil"
-                    className="w-full text-xs rounded-xl border border-slate-200 ps-9 pe-3 py-2.5 focus:border-medicore-500 focus:outline-none"
+                    className="w-full rounded-xl border border-slate-200 py-2.5 pe-3 ps-9 text-xs focus:border-medicore-500 focus:outline-none"
                   />
                 </div>
               </div>
             </>
           )}
 
-          {mode !== 'updatePassword' && <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">
-              {mode === 'login'
-                ? (locale === 'ar' ? 'البريد الإلكتروني أو اسم المستخدم *' : 'Email or Username *')
-                : (locale === 'ar' ? 'البريد الإلكتروني الرسمي *' : 'Official Email *')}
-            </label>
-            <div className="relative">
-              <Mail className="w-4 h-4 text-slate-400 absolute start-3 top-1/2 -translate-y-1/2" />
-              <input
-                type={mode === 'login' ? 'text' : 'email'}
-                required
-                value={email}
-                onChange={e => setEmail(e.target.value)}
-                placeholder={mode === 'login' ? (locale === 'ar' ? 'name@clinic.com أو اسم المستخدم' : 'name@clinic.com or username') : 'name@clinic.com'}
-                className="w-full text-xs rounded-xl border border-slate-200 ps-9 pe-3 py-2.5 focus:border-medicore-500 focus:outline-none"
-              />
+          {mode !== 'updatePassword' && (
+            <div>
+              <label htmlFor="auth-identifier" className="mb-1 block text-xs font-bold text-slate-700">
+                {mode === 'login'
+                  ? ar
+                    ? 'البريد الإلكتروني أو اسم المستخدم *'
+                    : 'Email or Username *'
+                  : ar
+                  ? 'البريد الإلكتروني الرسمي *'
+                  : 'Official Email *'}
+              </label>
+              <div className="relative">
+                <Mail className="absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <input
+                  id="auth-identifier"
+                  name={mode === 'login' ? 'username' : 'email'}
+                  type={mode === 'login' ? 'text' : 'email'}
+                  autoComplete={mode === 'login' ? 'username' : 'email'}
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder={mode === 'login' ? (ar ? 'name@clinic.com أو اسم المستخدم' : 'name@clinic.com or username') : 'name@clinic.com'}
+                  className="w-full rounded-xl border border-slate-200 py-2.5 pe-3 ps-9 text-xs focus:border-medicore-500 focus:outline-none"
+                />
+              </div>
             </div>
-          </div>}
+          )}
 
           {mode !== 'reset' && (
             <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="text-xs font-bold text-slate-700">
+              <div className="mb-1 flex items-center justify-between">
+                <label htmlFor="auth-password" className="text-xs font-bold text-slate-700">
                   {mode === 'updatePassword'
-                    ? (locale === 'ar' ? 'كلمة المرور الجديدة *' : 'New password *')
-                    : (locale === 'ar' ? 'كلمة المرور *' : 'Password *')}
+                    ? ar
+                      ? 'كلمة المرور الجديدة *'
+                      : 'New password *'
+                    : ar
+                    ? 'كلمة المرور *'
+                    : 'Password *'}
                 </label>
                 {mode === 'login' && (
                   <button
                     type="button"
-                    onClick={() => setMode('reset')}
+                    onClick={() => switchMode('reset')}
                     className="text-[11px] font-bold text-medicore-600 hover:underline"
                   >
-                    {locale === 'ar' ? 'نسيت كلمة المرور؟' : 'Forgot?'}
+                    {ar ? 'نسيت كلمة المرور؟' : 'Forgot?'}
                   </button>
                 )}
               </div>
               <div className="relative">
-                <Lock className="w-4 h-4 text-slate-400 absolute start-3 top-1/2 -translate-y-1/2" />
+                <Lock className="absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                 <input
+                  id="auth-password"
+                  name="password"
                   type={showPassword ? 'text' : 'password'}
+                  autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
                   required
                   minLength={mode === 'register' || mode === 'updatePassword' ? 12 : undefined}
                   value={password}
-                  onChange={e => setPassword(e.target.value)}
+                  onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
-                  className="w-full text-xs rounded-xl border border-slate-200 ps-9 pe-10 py-2.5 focus:border-medicore-500 focus:outline-none"
+                  className="w-full rounded-xl border border-slate-200 py-2.5 pe-10 ps-9 text-xs focus:border-medicore-500 focus:outline-none"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
+                  aria-label={showPassword ? (ar ? 'إخفاء كلمة المرور' : 'Hide password') : ar ? 'إظهار كلمة المرور' : 'Show password'}
                   className="absolute end-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
                 >
-                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
               </div>
             </div>
@@ -253,50 +376,54 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
 
           {(mode === 'register' || mode === 'updatePassword') && (
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">
+              <label htmlFor="auth-confirm-password" className="mb-1 block text-xs font-bold text-slate-700">
                 {mode === 'updatePassword'
-                  ? (locale === 'ar' ? 'تأكيد كلمة المرور الجديدة *' : 'Confirm new password *')
-                  : (locale === 'ar' ? 'تأكيد كلمة المرور *' : 'Confirm Password *')}
+                  ? ar
+                    ? 'تأكيد كلمة المرور الجديدة *'
+                    : 'Confirm new password *'
+                  : ar
+                  ? 'تأكيد كلمة المرور *'
+                  : 'Confirm Password *'}
               </label>
               <div className="relative">
-                <Lock className="w-4 h-4 text-slate-400 absolute start-3 top-1/2 -translate-y-1/2" />
+                <Lock className="absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                 <input
+                  id="auth-confirm-password"
+                  name="confirm_password"
                   type={showPassword ? 'text' : 'password'}
+                  autoComplete="new-password"
                   required
                   value={confirmPassword}
-                  onChange={e => setConfirmPassword(e.target.value)}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
                   placeholder="••••••••"
-                  className="w-full text-xs rounded-xl border border-slate-200 ps-9 pe-3 py-2.5 focus:border-medicore-500 focus:outline-none"
+                  className="w-full rounded-xl border border-slate-200 py-2.5 pe-3 ps-9 text-xs focus:border-medicore-500 focus:outline-none"
                 />
               </div>
             </div>
           )}
 
-          {/* Submit Button */}
           <div className="pt-2">
             <button
               type="submit"
               disabled={isLoading}
-              className="w-full py-2.5 px-4 bg-gradient-to-r from-medicore-600 to-medicore-700 hover:from-medicore-700 hover:to-medicore-800 text-white font-black text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-2 disabled:opacity-60"
+              className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-medicore-600 to-medicore-700 px-4 py-2.5 text-xs font-black text-white shadow-md transition-all hover:from-medicore-700 hover:to-medicore-800 disabled:opacity-60"
             >
               {isLoading ? (
-                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
               ) : (
                 <>
-                  <span>
-                    {mode === 'login' && (locale === 'ar' ? 'دخول المنظومة' : 'Sign In')}
-                    {mode === 'register' && (locale === 'ar' ? 'تأكيد التسجيل السحابي' : 'Register Account')}
-                    {mode === 'reset' && (locale === 'ar' ? 'إرسال رابط الاستعادة' : 'Send Reset Link')}
-                    {mode === 'updatePassword' && (locale === 'ar' ? 'حفظ كلمة المرور الجديدة' : 'Save new password')}
-                  </span>
-                  <ArrowRight className="w-3.5 h-3.5" />
+                  <span>{modeCopy[mode].submit}</span>
+                  <ArrowRight className="h-3.5 w-3.5" />
                 </>
               )}
             </button>
           </div>
         </form>
       </section>
-      <p className="relative z-10 text-center text-[11px] font-medium text-slate-400">{locale === 'ar' ? 'دخول آمن إلى مساحة العمل الخاصة بك' : 'Secure access to your workspace'}</p>
+
+      <p className="relative z-10 text-center text-[11px] font-medium text-slate-400">
+        {ar ? 'دخول آمن إلى مساحة العمل الخاصة بك' : 'Secure access to your workspace'}
+      </p>
     </main>
   );
 };
