@@ -37,7 +37,7 @@ const emptyMetrics: ReportMetrics = {
 const REPORT_PAYMENT_MODES = ['cash', 'instapay', 'wallet', 'vodafone_cash', 'fawry', 'credit_card', 'bank_transfer', 'insurance'] as const;
 
 export const Reports: React.FC = () => {
-  const { organization, activeBranch } = useAuth();
+  const { organization, activeBranch, can } = useAuth();
   const { locale, t } = useLanguage();
   const { error } = useToast();
   const [loading, setLoading] = useState(true);
@@ -46,9 +46,11 @@ export const Reports: React.FC = () => {
   const ar = locale === 'ar';
   const orgId = organization?.id || '';
   const currency = organization?.default_currency || 'EGP';
+  const canViewReports = can('reports', 'view');
+  const canBillingView = can('billing', 'view');
 
   const load = useCallback(async () => {
-    if (!supabase || !orgId) {
+    if (!supabase || !orgId || !canViewReports) {
       setLoading(false);
       return;
     }
@@ -73,6 +75,7 @@ export const Reports: React.FC = () => {
       paySlipQ = paySlipQ.eq('branch_id', branchId);
     }
 
+    const emptyOk = Promise.resolve({ data: [], error: null });
     const [
       patientsRes,
       appointmentsRes,
@@ -91,10 +94,10 @@ export const Reports: React.FC = () => {
       supabase.from('doctors').select('id', { count: 'exact', head: true }).eq('organization_id', orgId).eq('is_active', true),
       labQ,
       radQ,
-      payQ,
-      expQ,
-      commQ,
-      paySlipQ,
+      canBillingView ? payQ : emptyOk,
+      canBillingView ? expQ : emptyOk,
+      canBillingView ? commQ : emptyOk,
+      canBillingView ? paySlipQ : emptyOk,
     ]);
 
     if (
@@ -174,8 +177,19 @@ export const Reports: React.FC = () => {
   };
 
   if (!organization) return null;
+  if (!canViewReports) {
+    return (
+      <section className="mx-auto max-w-2xl rounded-2xl border border-rose-200 bg-rose-50 p-8 text-center" dir={ar ? 'rtl' : 'ltr'}>
+        <h1 className="text-lg font-black text-slate-900">{t.nav.reports}</h1>
+        <p className="mt-2 text-sm text-rose-900">
+          {ar ? 'ليست لديك صلاحية عرض التقارير التحليلية. يمكن لمالك المنشأة تفعيلها من شاشة الصلاحيات.' : 'You do not have permission to view analytics reports.'}
+        </p>
+      </section>
+    );
+  }
 
   const netOperating = metrics.revenue - metrics.expenses;
+  const restrictedLabel = ar ? 'مقيد بالصلاحيات' : 'Restricted';
 
   const cards: [string, string | number][] = [
     [ar ? 'المرضى النشطون' : 'Active Patients', metrics.patients],
@@ -184,11 +198,11 @@ export const Reports: React.FC = () => {
     [ar ? 'الأطباء النشطون' : 'Active Doctors', metrics.doctors],
     [ar ? 'طلبات المعمل' : 'Laboratory Orders', metrics.labOrders],
     [ar ? 'طلبات الأشعة' : 'Radiology Orders', metrics.radOrders],
-    [ar ? 'الإيرادات المحصلة' : 'Collected Revenue', `${metrics.revenue.toLocaleString()} ${currency}`],
-    [ar ? 'المصروفات التشغيلية' : 'Expenses', `${metrics.expenses.toLocaleString()} ${currency}`],
-    [ar ? 'عمولات الأطباء' : 'Doctor Commissions', `${metrics.commissions.toLocaleString()} ${currency}`],
-    [ar ? 'الرواتب المنصرفة' : 'Paid Payroll', `${metrics.payrollPaid.toLocaleString()} ${currency}`],
-    [ar ? 'صافي التدفق التشغيلي' : 'Net Operating Cashflow', `${netOperating.toLocaleString()} ${currency}`],
+    [ar ? 'الإيرادات المحصلة' : 'Collected Revenue', canBillingView ? `${metrics.revenue.toLocaleString()} ${currency}` : restrictedLabel],
+    [ar ? 'المصروفات التشغيلية' : 'Expenses', canBillingView ? `${metrics.expenses.toLocaleString()} ${currency}` : restrictedLabel],
+    [ar ? 'عمولات الأطباء' : 'Doctor Commissions', canBillingView ? `${metrics.commissions.toLocaleString()} ${currency}` : restrictedLabel],
+    [ar ? 'الرواتب المنصرفة' : 'Paid Payroll', canBillingView ? `${metrics.payrollPaid.toLocaleString()} ${currency}` : restrictedLabel],
+    [ar ? 'صافي التدفق التشغيلي' : 'Net Operating Cashflow', canBillingView ? `${netOperating.toLocaleString()} ${currency}` : restrictedLabel],
   ];
 
   return (

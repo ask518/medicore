@@ -3,7 +3,7 @@
 // Section 6 Implementation: Platform & Organization Permissions Matrix
 // ============================================================================
 
-import { AppRole } from '../types/database';
+import { AppRole, CustomPermissionKey, CustomPermissionsMap, User } from '../types/database';
 
 export type RbacModule = 
   | 'organizations'
@@ -373,4 +373,174 @@ export const hasPermission = (
   }
 
   return false;
+};
+
+export interface CustomPermissionDefinition {
+  key: CustomPermissionKey;
+  category: 'financial' | 'clinical' | 'admin';
+  label_ar: string;
+  label_en: string;
+  description_ar: string;
+  description_en: string;
+  defaultRoles: AppRole[];
+}
+
+export const CUSTOM_PERMISSION_DEFINITIONS: CustomPermissionDefinition[] = [
+  {
+    key: 'billing_view',
+    category: 'financial',
+    label_ar: 'الصلاحية المالية (عرض الفواتير والخزينة)',
+    label_en: 'Financial Visibility (Invoices & Cashboxes)',
+    description_ar: 'الاطلاع على الفواتير وأرصدة الخزائن والمدفوعات والحساب المالي للمرضى',
+    description_en: 'View facility invoices, cashbox balances, payments, and patient billing ledger',
+    defaultRoles: ['org_owner', 'general_manager', 'branch_manager', 'accountant', 'receptionist', 'insurance_officer'],
+  },
+  {
+    key: 'billing_collect',
+    category: 'financial',
+    label_ar: 'حق التحصيل واستلام المدفوعات',
+    label_en: 'Payment Collection Authority',
+    description_ar: 'تحصيل سداد الفواتير والديون وإصدار إيصالات الاستلام أو رد الرصيد على الخزينة',
+    description_en: 'Collect invoice payments, record debt settlements, and issue cashbox refunds',
+    defaultRoles: ['org_owner', 'general_manager', 'branch_manager', 'accountant', 'receptionist'],
+  },
+  {
+    key: 'billing_create',
+    category: 'financial',
+    label_ar: 'إصدار الفواتير الجديدة',
+    label_en: 'Create Invoices',
+    description_ar: 'إنشاء فواتير خدمات وكشوفات جديدة للمرضى',
+    description_en: 'Issue new patient service and visit invoices',
+    defaultRoles: ['org_owner', 'general_manager', 'accountant', 'receptionist'],
+  },
+  {
+    key: 'patient_balances_manage',
+    category: 'financial',
+    label_ar: 'تعديل أرصدة وباقات المرضى السابقة',
+    label_en: 'Manage Patient Legacy Balances & Packages',
+    description_ar: 'تسجيل مديونيات سابقة أو أرصدة/باقات جلسات مسبقة الدفع وخصم الجلسات',
+    description_en: 'Record legacy patient balances, prepaid session packages, and session deductions',
+    defaultRoles: ['org_owner', 'general_manager', 'branch_manager', 'accountant', 'receptionist', 'records_officer'],
+  },
+  {
+    key: 'expenses_manage',
+    category: 'financial',
+    label_ar: 'تسجيل وإدارة المصروفات',
+    label_en: 'Manage Operating Expenses',
+    description_ar: 'إضافة وتعديل مصروفات المنشأة التشغيلية',
+    description_en: 'Record and manage clinic operating expenses',
+    defaultRoles: ['org_owner', 'general_manager', 'branch_manager', 'accountant'],
+  },
+  {
+    key: 'payroll_manage',
+    category: 'financial',
+    label_ar: 'صرف وإدارة الرواتب',
+    label_en: 'Payroll Disbursement',
+    description_ar: 'اعتماد وصرف مسيرات رواتب الموظفين من الخزينة',
+    description_en: 'Approve and disburse staff payroll slips',
+    defaultRoles: ['org_owner', 'general_manager', 'accountant'],
+  },
+  {
+    key: 'reports_view',
+    category: 'financial',
+    label_ar: 'عرض وتصدير التقارير التحليلية',
+    label_en: 'View & Export Reports',
+    description_ar: 'فتح صفحة التقارير وتصدير ملفات CSV',
+    description_en: 'Access operational/analytics reports and export CSV',
+    defaultRoles: ['org_owner', 'general_manager', 'branch_manager', 'medical_director', 'accountant', 'insurance_officer', 'inventory_manager', 'records_officer'],
+  },
+  {
+    key: 'patients_manage',
+    category: 'clinical',
+    label_ar: 'إدارة ملفات المرضى (EMR)',
+    label_en: 'Manage Patient EMR Files',
+    description_ar: 'فتح وتعديل ملفات المرضى بالمنشأة',
+    description_en: 'Register and update patient medical records',
+    defaultRoles: ['org_owner', 'general_manager', 'branch_manager', 'medical_director', 'doctor', 'assistant_doctor', 'nurse', 'receptionist', 'records_officer'],
+  },
+  {
+    key: 'appointments_manage',
+    category: 'clinical',
+    label_ar: 'إدارة المواعيد والحجوزات',
+    label_en: 'Manage Appointments & Queue',
+    description_ar: 'حجز وتعديل مواعيد العيادات وطابور الانتظار',
+    description_en: 'Book and update clinic appointments and queue flow',
+    defaultRoles: ['org_owner', 'general_manager', 'branch_manager', 'medical_director', 'doctor', 'assistant_doctor', 'nurse', 'receptionist'],
+  },
+  {
+    key: 'clinical_manage',
+    category: 'clinical',
+    label_ar: 'الكشف السريري والـ 3D والروشتات',
+    label_en: 'Clinical Exams, 3D & Prescriptions',
+    description_ar: 'تسجيل واعتماد الكشوفات والفحوصات التخصصية 3D وإصدار الروشتات',
+    description_en: 'Record consultations, 3D specialty exams, and prescriptions',
+    defaultRoles: ['org_owner', 'general_manager', 'branch_manager', 'medical_director', 'doctor', 'assistant_doctor'],
+  },
+  {
+    key: 'inventory_manage',
+    category: 'admin',
+    label_ar: 'إدارة الصيدلية والمخزون',
+    label_en: 'Inventory & Pharmacy Management',
+    description_ar: 'إضافة وصرف الأصناف والمستلزمات الطبية',
+    description_en: 'Manage pharmacy items and medical supplies stock',
+    defaultRoles: ['org_owner', 'general_manager', 'branch_manager', 'pharmacist', 'inventory_manager'],
+  },
+  {
+    key: 'staff_manage',
+    category: 'admin',
+    label_ar: 'إدارة فريق العمل والصلاحيات',
+    label_en: 'Staff & Permissions Management',
+    description_ar: 'الاطلاع على حسابات الفريق وتعديل الصلاحيات',
+    description_en: 'View team accounts and administer access controls',
+    defaultRoles: ['org_owner', 'general_manager'],
+  },
+];
+
+export const hasCustomCapability = (
+  user: Pick<User, 'role' | 'custom_permissions'> | null | undefined,
+  key: CustomPermissionKey
+): boolean => {
+  if (!user?.role) return false;
+  if (user.role === 'super_admin' || user.role === 'org_owner') return true;
+  const overrides: CustomPermissionsMap | undefined = user.custom_permissions;
+  if (overrides && typeof overrides[key] === 'boolean') {
+    return Boolean(overrides[key]);
+  }
+  const def = CUSTOM_PERMISSION_DEFINITIONS.find(item => item.key === key);
+  return def ? def.defaultRoles.includes(user.role) : false;
+};
+
+export const hasUserPermission = (
+  user: Pick<User, 'role' | 'custom_permissions'> | null | undefined,
+  module: RbacModule,
+  action: RbacAction = 'view'
+): boolean => {
+  if (!user?.role) return false;
+  if (user.role === 'super_admin' || user.role === 'org_owner') return true;
+  const overrides = user.custom_permissions;
+  if (overrides) {
+    if (module === 'billing') {
+      if (action === 'approve' && typeof overrides.billing_collect === 'boolean') return overrides.billing_collect;
+      if (action === 'create' && typeof overrides.billing_create === 'boolean') return overrides.billing_create;
+      if (action === 'view') {
+        if (typeof overrides.billing_view === 'boolean') {
+          return overrides.billing_view || Boolean(overrides.billing_collect) || Boolean(overrides.billing_create);
+        }
+        if (overrides.billing_collect === true || overrides.billing_create === true) return true;
+      }
+    }
+    if (module === 'reports' && typeof overrides.reports_view === 'boolean') return overrides.reports_view;
+    if (module === 'patients' && typeof overrides.patients_manage === 'boolean') return overrides.patients_manage;
+    if (module === 'appointments' && typeof overrides.appointments_manage === 'boolean') return overrides.appointments_manage;
+    if ((module === 'consultations' || module === 'prescriptions') && typeof overrides.clinical_manage === 'boolean') {
+      return overrides.clinical_manage;
+    }
+    if (module === 'inventory' && typeof overrides.inventory_manage === 'boolean') return overrides.inventory_manage;
+    if (module === 'staff' && typeof overrides.staff_manage === 'boolean') return overrides.staff_manage;
+    if (module === 'hr') {
+      if (action === 'approve' && typeof overrides.payroll_manage === 'boolean') return overrides.payroll_manage;
+      if ((action === 'edit' || action === 'create') && typeof overrides.expenses_manage === 'boolean') return overrides.expenses_manage;
+    }
+  }
+  return hasPermission(user.role, module, action);
 };

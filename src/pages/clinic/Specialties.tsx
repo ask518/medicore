@@ -90,7 +90,7 @@ type SnapshotRow = AnatomicalFinding & {
 };
 
 export const Specialties: React.FC = () => {
-  const { user, organization, activeBranch, can } = useAuth();
+  const { user, organization, activeBranch, can, hasCustomPermission } = useAuth();
   const { locale, t } = useLanguage();
   const { success, error } = useToast();
   const ar = locale === 'ar';
@@ -100,7 +100,7 @@ export const Specialties: React.FC = () => {
   const role = user?.role || '';
 
   const canView = can('consultations', 'view') || can('patients', 'view');
-  const canWrite = ['super_admin', 'org_owner', 'general_manager', 'medical_director', 'branch_manager', 'doctor', 'assistant_doctor', 'nurse'].includes(role);
+  const canWrite = (['super_admin', 'org_owner', 'general_manager', 'medical_director', 'branch_manager', 'doctor', 'assistant_doctor', 'nurse'].includes(role) || hasCustomPermission('clinical_manage')) && hasCustomPermission('clinical_manage');
 
   const availableSpecialties = useMemo(() => {
     const orgCodes = Array.isArray(organization?.specialties) && organization.specialties.length > 0
@@ -148,7 +148,26 @@ export const Specialties: React.FC = () => {
   const [uroData, setUroData] = useState<UrologyData>(createEmptyUrologyData);
   const [generalData, setGeneralData] = useState<GeneralClinicalData>(createEmptyGeneralClinicalData);
 
-  // Sync default specialty code to available tenant specialties
+  // Sync default specialty code to available tenant specialties (or logged-in clinician specialty)
+  useEffect(() => {
+    if (!supabase || !orgId || !user?.id || !['doctor', 'assistant_doctor'].includes(role)) return;
+    let alive = true;
+    void supabase
+      .from('doctors')
+      .select('specialty_code')
+      .eq('organization_id', orgId)
+      .eq('user_id', user.id)
+      .eq('is_active', true)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (!alive || !data?.specialty_code) return;
+        if (availableSpecialties.some(s => s.code === data.specialty_code)) {
+          setSelectedSpecialtyCode(data.specialty_code);
+        }
+      });
+    return () => { alive = false; };
+  }, [orgId, user?.id, role, availableSpecialties]);
+
   useEffect(() => {
     if (
       availableSpecialties.length > 0 &&

@@ -47,9 +47,11 @@ type PaymentRow = {
 const MODES: PaymentMode[] = ['cash', 'instapay', 'wallet', 'vodafone_cash', 'fawry', 'credit_card', 'bank_transfer', 'insurance'];
 
 export const Billing: React.FC<{ initialTab?: 'invoices' | 'commissions' }> = ({ initialTab = 'invoices' }) => {
-  const { organization, activeBranch, isOrgOwner, can } = useAuth();
+  const { organization, activeBranch, isOrgOwner, can, hasCustomPermission } = useAuth();
   const { locale, t } = useLanguage();
   const { success, error } = useToast();
+  const canViewBilling = can('billing', 'view');
+  const canCollectPayments = hasCustomPermission('billing_collect');
 
   const [viewTab, setViewTab] = useState<'invoices' | 'commissions'>(initialTab);
   useEffect(() => {
@@ -93,7 +95,7 @@ export const Billing: React.FC<{ initialTab?: 'invoices' | 'commissions' }> = ({
   const currency = organization?.default_currency || 'EGP';
 
   const load = useCallback(async () => {
-    if (!supabase || !orgId) {
+    if (!supabase || !orgId || !canViewBilling) {
       setLoading(false);
       return;
     }
@@ -150,7 +152,7 @@ export const Billing: React.FC<{ initialTab?: 'invoices' | 'commissions' }> = ({
     setCommissions((commRes.data || []) as unknown as CommissionRow[]);
     setPayments((payRes.error ? [] : (payRes.data || [])) as unknown as PaymentRow[]);
     setLoading(false);
-  }, [orgId, activeBranch?.id, ar, error]);
+  }, [orgId, activeBranch?.id, ar, error, canViewBilling]);
 
   useEffect(() => {
     void load();
@@ -234,6 +236,16 @@ export const Billing: React.FC<{ initialTab?: 'invoices' | 'commissions' }> = ({
   };
 
   if (!organization) return null;
+  if (!canViewBilling) {
+    return (
+      <section className="mx-auto max-w-2xl rounded-2xl border border-rose-200 bg-rose-50 p-8 text-center" dir={ar ? 'rtl' : 'ltr'}>
+        <h1 className="text-lg font-black text-slate-900">{t.billing.title}</h1>
+        <p className="mt-2 text-sm text-rose-900">
+          {ar ? 'ليست لديك صلاحية الاطلاع على الفواتير والحسابات المالية. يمكن لمالك المنشأة تعديل صلاحياتك من شاشة فريق العمل.' : 'You do not have permission to view billing and financial records.'}
+        </p>
+      </section>
+    );
+  }
   const total = invoices.reduce((sum, i) => sum + Number(i.total_amount), 0);
   const collected = invoices.reduce((sum, i) => sum + Number(i.paid_amount), 0);
   const due = invoices.reduce((sum, i) => sum + Number(i.balance_due), 0);
@@ -380,7 +392,7 @@ export const Billing: React.FC<{ initialTab?: 'invoices' | 'commissions' }> = ({
                       <span>{ar ? 'المدفوع:' : 'Paid:'} {Number(inv.paid_amount).toLocaleString()}</span>
                       <span className="font-bold text-slate-900">{ar ? 'المتبقي:' : 'Balance:'} {Number(inv.balance_due).toLocaleString()} {currency}</span>
                     </div>
-                    {Number(inv.balance_due) > 0 && (
+                    {Number(inv.balance_due) > 0 && canCollectPayments && (
                       <button
                         onClick={() => {
                           setPayInvoice(inv);
@@ -425,7 +437,7 @@ export const Billing: React.FC<{ initialTab?: 'invoices' | 'commissions' }> = ({
                           </span>
                         </td>
                         <td className="p-3">
-                          {Number(inv.balance_due) > 0 && (
+                          {Number(inv.balance_due) > 0 && canCollectPayments ? (
                             <button
                               onClick={() => {
                                 setPayInvoice(inv);
@@ -438,7 +450,11 @@ export const Billing: React.FC<{ initialTab?: 'invoices' | 'commissions' }> = ({
                               <Wallet className="h-3 w-3" />
                               {ar ? 'تحصيل' : 'Collect'}
                             </button>
-                          )}
+                          ) : Number(inv.balance_due) > 0 ? (
+                            <span className="text-[11px] font-bold text-slate-400">
+                              {ar ? 'بدون حق تحصيل' : 'No collect access'}
+                            </span>
+                          ) : null}
                         </td>
                       </tr>
                     ))}

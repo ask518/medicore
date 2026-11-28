@@ -443,6 +443,13 @@ export const Appointments: React.FC = () => {
             </h3>
 
             <form onSubmit={handleCreateAppointment} className="space-y-4">
+              {!isLoading && doctors.length === 0 && (
+                <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs font-bold leading-5 text-amber-950">
+                  {locale === 'ar'
+                    ? 'لا يوجد أطباء مفعلون في هذا الفرع بعد. افتح شاشة «فريق العمل والصلاحيات» لإضافة طبيب أو تفعيل ملفك كطبيب معالج.'
+                    : 'No active clinicians are registered in this branch yet. Open «Staff & RBAC» to add a doctor or activate your clinician profile.'}
+                </div>
+              )}
               {/* Patient Selection */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">

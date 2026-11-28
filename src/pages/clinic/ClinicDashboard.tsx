@@ -86,7 +86,7 @@ export const ClinicDashboard: React.FC<ClinicDashboardProps> = ({ onNavigate }) 
       </div>
 
       {/* Metric Cards Grid */}
-      <PlanQuotaNotice orgId={orgId} ar={locale === 'ar'} scope="all" />
+      <PlanQuotaNotice orgId={orgId} ar={locale === 'ar'} scope="operations" />
       <div className={`grid grid-cols-1 sm:grid-cols-2 ${canBillingView ? 'lg:grid-cols-4' : 'lg:grid-cols-3'} gap-4`}>
         {/* Total Patients */}
         <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs flex items-center justify-between">

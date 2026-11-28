@@ -1,9 +1,9 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
-import { User, Organization, Branch, Subscription } from '../types/database';
+import { User, Organization, Branch, Subscription, CustomPermissionKey } from '../types/database';
 import { supabase } from '../lib/supabase';
 import { APP_CONFIG } from '../config/appConfig';
-import { hasPermission, RbacModule, RbacAction } from '../config/rbacPermissions';
+import { hasPermission, hasUserPermission, hasCustomCapability, RbacModule, RbacAction } from '../config/rbacPermissions';
 
 interface AuthContextType {
   user: User | null; session: Session | null; organization: Organization | null;
@@ -12,7 +12,9 @@ interface AuthContextType {
   isAuthenticated: boolean; isLoading: boolean; isPasswordRecovery: boolean;
   isSuperAdmin: boolean; isOrgOwner: boolean;
   isDoctor: boolean; isReceptionist: boolean; isAccountant: boolean; isPatient: boolean;
-  isEnterpriseDedicated: boolean; can: (module: RbacModule, action?: RbacAction) => boolean;
+  isEnterpriseDedicated: boolean;
+  can: (module: RbacModule, action?: RbacAction) => boolean;
+  hasCustomPermission: (key: CustomPermissionKey) => boolean;
   login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
   register: (email: string, password: string, name_ar: string, name_en?: string) => Promise<{ success: boolean; error?: string }>;
   resetPassword: (email: string) => Promise<{ success: boolean; error?: string }>;
@@ -176,6 +178,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const permitted = availableBranches.find(branch => branch.id === id);
     if (permitted) { branchIdRef.current = id; setActiveBranch(permitted); }
   };
+  const isFacilitySupportMode = Boolean(supportSession && organization);
+  const can = useCallback((module: RbacModule, action: RbacAction = 'view') => {
+    if (isFacilitySupportMode) return true;
+    return hasUserPermission(user, module, action);
+  }, [isFacilitySupportMode, user]);
+  const hasCustomPermission = useCallback((key: CustomPermissionKey) => {
+    if (isFacilitySupportMode) return true;
+    return hasCustomCapability(user, key);
+  }, [isFacilitySupportMode, user]);
   const isSuperAdmin = user?.role === 'super_admin';
   const enterFacilitySupport = useCallback<AuthContextType['enterFacilitySupport']>(async organizationId => {
     if (!supabase || !session || !isSuperAdmin) return { success: false, error: 'دخول المنشأة متاح لمالك المنصة فقط.' };
@@ -233,8 +244,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
     finally { setSession(null); setUser(null); setOrganization(null); setActiveBranch(null); setAvailableBranches([]); setSubscription(null); setSupportSession(null); branchIdRef.current = ''; }
   };
-  const can = (module: RbacModule, action: RbacAction = 'view') => hasPermission(user?.role, module, action);
-  const isFacilitySupportMode = Boolean(supportSession && organization);
   const value = useMemo<AuthContextType>(() => ({
     user, session, organization, activeBranch, availableBranches, subscription, isAuthenticated: Boolean(session && user),
     isFacilitySupportMode, supportSessionExpiresAt: supportSession?.expiresAt || null,
@@ -244,8 +253,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     isDoctor: user?.role === 'doctor' || user?.role === 'assistant_doctor', isReceptionist: user?.role === 'receptionist',
     isAccountant: user?.role === 'accountant', isPatient: user?.role === 'patient',
     isEnterpriseDedicated: Boolean(organization?.is_enterprise_dedicated || APP_CONFIG.isEnterpriseMode),
-    can, login, register, resetPassword, updatePassword, changePassword, switchBranch, refreshIdentity, enterFacilitySupport, exitFacilitySupport, logout,
-  }), [user, session, organization, activeBranch, availableBranches, subscription, isLoading, isPasswordRecovery, isSuperAdmin, isFacilitySupportMode, supportSession, enterFacilitySupport, exitFacilitySupport, refreshIdentity]);
+    can, hasCustomPermission, login, register, resetPassword, updatePassword, changePassword, switchBranch, refreshIdentity, enterFacilitySupport, exitFacilitySupport, logout,
+  }), [user, session, organization, activeBranch, availableBranches, subscription, isLoading, isPasswordRecovery, isSuperAdmin, isFacilitySupportMode, supportSession, can, hasCustomPermission, enterFacilitySupport, exitFacilitySupport, refreshIdentity]);
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
 

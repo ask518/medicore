@@ -105,7 +105,7 @@ const EXPENSE_CATEGORIES = [
 const LEAVE_TYPES: LeaveType[] = ['annual', 'sick', 'casual', 'unpaid', 'maternity', 'emergency'];
 
 export const HR: React.FC = () => {
-  const { user, organization, activeBranch, can } = useAuth();
+  const { user, organization, activeBranch, can, hasCustomPermission } = useAuth();
   const { locale } = useLanguage();
   const { success, error } = useToast();
   const ar = locale === 'ar';
@@ -116,8 +116,8 @@ export const HR: React.FC = () => {
   const role = user?.role || '';
 
   const canView = can('hr', 'view');
-  const canManagePayroll = ['super_admin', 'org_owner', 'general_manager', 'branch_manager', 'accountant'].includes(role);
-  const canApprovePayroll = ['super_admin', 'org_owner', 'general_manager', 'accountant'].includes(role);
+  const canManagePayroll = ['super_admin', 'org_owner', 'general_manager', 'branch_manager', 'accountant'].includes(role) || hasCustomPermission('expenses_manage') || hasCustomPermission('payroll_manage');
+  const canApprovePayroll = (['super_admin', 'org_owner', 'general_manager', 'accountant'].includes(role) || hasCustomPermission('payroll_manage')) && hasCustomPermission('payroll_manage');
   const canDecideLeave = ['super_admin', 'org_owner', 'general_manager', 'medical_director', 'branch_manager'].includes(role);
 
   const [activeTab, setActiveTab] = useState<'payroll' | 'leaves' | 'expenses' | 'commissions'>('payroll');

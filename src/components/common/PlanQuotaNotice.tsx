@@ -23,7 +23,7 @@ export interface OrgQuotaSnapshot {
 interface PlanQuotaNoticeProps {
   orgId: string;
   ar: boolean;
-  scope?: 'all' | 'branches' | 'doctors' | 'users' | 'patients';
+  scope?: 'all' | 'operations' | 'branches' | 'doctors' | 'users' | 'patients';
   onLoaded?: (snapshot: OrgQuotaSnapshot | null) => void;
 }
 
@@ -56,7 +56,10 @@ export const PlanQuotaNotice: React.FC<PlanQuotaNoticeProps> = ({
     { key: 'patients', labelAr: 'المرضى', labelEn: 'Patients', max: snapshot.limits.max_patients, used: snapshot.usage.patients },
   ];
 
-  const relevant = checks.filter(c => (scope === 'all' || c.key === scope) && c.max > 0 && c.used >= c.max);
+  const relevant = checks.filter(c => {
+    const inScope = scope === 'all' || (scope === 'operations' ? c.key !== 'branches' : c.key === scope);
+    return inScope && c.max > 0 && c.used >= c.max;
+  });
   if (relevant.length === 0) return null;
 
   const summaryText = relevant

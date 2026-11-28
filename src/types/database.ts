@@ -168,6 +168,22 @@ export type AppRole =
   | 'records_officer'
   | 'patient';
 
+export type CustomPermissionKey =
+  | 'billing_view'
+  | 'billing_create'
+  | 'billing_collect'
+  | 'patient_balances_manage'
+  | 'expenses_manage'
+  | 'payroll_manage'
+  | 'reports_view'
+  | 'patients_manage'
+  | 'appointments_manage'
+  | 'clinical_manage'
+  | 'inventory_manage'
+  | 'staff_manage';
+
+export type CustomPermissionsMap = Partial<Record<CustomPermissionKey, boolean>>;
+
 export interface User {
   id: string;
   organization_id?: string;
@@ -182,6 +198,7 @@ export interface User {
   national_id?: string;
   specialty_id?: string;
   license_number?: string;
+  custom_permissions?: CustomPermissionsMap;
   created_at: string;
   updated_at: string;
 }

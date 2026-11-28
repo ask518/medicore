@@ -13,7 +13,7 @@ type PrescriptionItemDraft = { drug_name: string; dosage: string; frequency: str
 const numberOrNull = (value: string) => value.trim() === '' ? null : Number(value);
 
 export const Consultation: React.FC = () => {
-  const { user, organization, activeBranch, availableBranches } = useAuth();
+  const { user, organization, activeBranch, availableBranches, hasCustomPermission } = useAuth();
   const { locale } = useLanguage(); const { success, error } = useToast();
   const [patients, setPatients] = useState<PatientOption[]>([]); const [doctors, setDoctors] = useState<DoctorOption[]>([]); const [records, setRecords] = useState<ConsultationRow[]>([]);
   const [patientId, setPatientId] = useState(''); const [doctorId, setDoctorId] = useState(''); const [branchId, setBranchId] = useState(activeBranch?.id || '');
@@ -22,7 +22,7 @@ export const Consultation: React.FC = () => {
   const [prescriptionConsultationId, setPrescriptionConsultationId] = useState(''); const [prescriptionSaving, setPrescriptionSaving] = useState(false); const [prescriptionNotes, setPrescriptionNotes] = useState('');
   const [prescriptionItems, setPrescriptionItems] = useState<PrescriptionItemDraft[]>([{ drug_name: '', dosage: '', frequency: '', duration: '', quantity: '', instructions: '' }]);
   const ar = locale === 'ar'; const orgId = organization?.id || '';
-  const isAuthorized = ['super_admin','org_owner','general_manager','doctor','assistant_doctor'].includes(user?.role || '');
+  const isAuthorized = (['super_admin','org_owner','general_manager','doctor','assistant_doctor'].includes(user?.role || '') || hasCustomPermission('clinical_manage')) && hasCustomPermission('clinical_manage');
 
   const loadData = useCallback(async () => {
     if (!supabase || !orgId) { setLoading(false); return; }
@@ -99,7 +99,8 @@ export const Consultation: React.FC = () => {
   if (!organization) return null;
   return <main className="space-y-6" dir={ar?'rtl':'ltr'}>
     <header><h1 className="flex items-center gap-2 text-2xl font-black"><FileText className="h-6 w-6 text-medicore-600"/>{ar?'الكشف السريري':'Clinical consultation'}</h1><p className="mt-1 text-sm text-slate-500">{ar?'يُحفظ الكشف في قاعدة البيانات ويُوقّع باسم المستخدم الحالي. الكشف المعتمد غير قابل للتعديل.' : 'Consultations are stored in the database and signed by the current user. Finalized records cannot be edited.'}</p></header>
-    {!isAuthorized&&<div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">{ar?'الدور الحالي لا يسمح باعتماد الكشوفات.':'Your role cannot sign consultations.'}</div>}
+    {!isAuthorized&&<div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">{ar?'الدور أو الصلاحية الحالية لا تسمح باعتماد الكشوفات.':'Your role or permissions cannot sign consultations.'}</div>}
+    {!loading && doctors.length === 0 && <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm font-bold text-amber-950">{ar?'لا يوجد أطباء مفعلون في هذا الفرع بعد. افتح شاشة «فريق العمل والصلاحيات» لتفعيل ملفك كطبيب معالج أو إضافة طبيب جديد حتى يتمكن النظام من تسجيل الكشف.':'No active clinicians are registered in this branch yet. Open «Staff & RBAC» to activate yourself as a treating clinician or invite a doctor.'}</div>}
     <form onSubmit={saveConsultation} className="space-y-5 rounded-2xl border border-slate-200 bg-white p-5">
       <div className="grid gap-3 sm:grid-cols-3"><label className="text-xs font-bold">{ar?'المريض':'Patient'}<select required value={patientId} onChange={e=>setPatientId(e.target.value)} className="mt-1 w-full rounded-xl border bg-white p-2.5 text-sm"><option value="">{ar?'اختر مريضًا':'Select patient'}</option>{patients.map(p=><option key={p.id} value={p.id}>{p.first_name_ar} {p.last_name_ar} · {p.mrn}</option>)}</select></label><label className="text-xs font-bold">{ar?'الطبيب المعالج':'Treating clinician'}<select required value={doctorId} onChange={e=>setDoctorId(e.target.value)} className="mt-1 w-full rounded-xl border bg-white p-2.5 text-sm"><option value="">{ar?'اختر طبيبًا':'Select clinician'}</option>{doctors.filter(d=>!['doctor','assistant_doctor'].includes(user?.role||'')||d.user_id===user?.id).map(d=><option key={d.id} value={d.id}>{d.user?.[ar?'name_ar':'name_en']||d.specialty_title_ar} · {ar?d.specialty_title_ar:d.specialty_title_en}</option>)}</select></label><label className="text-xs font-bold">{ar?'الفرع':'Branch'}<select required value={activeBranch?.id||branchId} disabled={Boolean(activeBranch)} onChange={e=>setBranchId(e.target.value)} className="mt-1 w-full rounded-xl border bg-white p-2.5 text-sm">{availableBranches.map(b=><option key={b.id} value={b.id}>{ar?b.name_ar:b.name_en}</option>)}</select></label></div>
       <label className="block text-xs font-bold">{ar?'الشكوى الرئيسية':'Chief complaint'}<textarea required maxLength={5000} value={chief} onChange={e=>setChief(e.target.value)} rows={2} className="mt-1 w-full rounded-xl border p-3 text-sm"/></label>
